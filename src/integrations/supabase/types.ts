@@ -108,6 +108,7 @@ export type Database = {
       }
       email_logs: {
         Row: {
+          body_text: string | null
           email_account_id: string | null
           from_email: string
           id: string
@@ -115,6 +116,7 @@ export type Database = {
           subject: string | null
         }
         Insert: {
+          body_text?: string | null
           email_account_id?: string | null
           from_email: string
           id?: string
@@ -122,6 +124,7 @@ export type Database = {
           subject?: string | null
         }
         Update: {
+          body_text?: string | null
           email_account_id?: string | null
           from_email?: string
           id?: string

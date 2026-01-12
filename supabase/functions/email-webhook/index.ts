@@ -26,7 +26,6 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const botToken = Deno.env.get("BOT_TOKEN");
 
     // Parse incoming email from Cloudflare Worker
     const emailData: CloudflareEmailPayload = await req.json();
@@ -47,69 +46,60 @@ serve(async (req: Request): Promise<Response> => {
     // Find email account by the destination email
     const { data: emailAccount, error: accountError } = await supabase
       .from("email_accounts")
-      .select("*, telegram_users(*)")
+      .select("*")
       .eq("email", toEmail)
       .eq("is_active", true)
-      .eq("auto_reply_enabled", true)
-      .single();
+      .maybeSingle();
 
-    if (accountError || !emailAccount) {
+    if (accountError) {
+      console.error("Error finding email account:", accountError);
+      return new Response(
+        JSON.stringify({ success: false, error: accountError.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!emailAccount) {
       console.log("No active email account found for:", toEmail);
       return new Response(
-        JSON.stringify({ success: true, message: "No matching account or auto-reply disabled" }),
+        JSON.stringify({ success: true, message: "No matching account" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Check if user is approved
-    if (emailAccount.telegram_users?.status !== "approved") {
-      console.log("User not approved:", emailAccount.telegram_user_id);
-      return new Response(
-        JSON.stringify({ success: true, message: "User not approved" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Log the email
-    await supabase.from("email_logs").insert({
+    // Log the email with body content
+    const { error: insertError } = await supabase.from("email_logs").insert({
       email_account_id: emailAccount.id,
       from_email: fromEmail,
       subject: emailData.subject || "(No Subject)",
+      body_text: emailData.text || emailData.html || null,
     });
 
-    // Send notification to Telegram user
-    if (botToken && emailAccount.telegram_users?.telegram_id) {
-      const telegramMessage = `📧 *Email Baru Diterima*\n\n` +
-        `*Dari:* ${escapeMarkdown(fromEmail)}\n` +
-        `*Subjek:* ${escapeMarkdown(emailData.subject || "(No Subject)")}\n\n` +
-        `Auto-reply telah dikirim dengan pesan:\n` +
-        `_${escapeMarkdown(emailAccount.auto_reply_message || "Terima kasih atas email Anda.")}_`;
-
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: emailAccount.telegram_users.telegram_id,
-          text: telegramMessage,
-          parse_mode: "Markdown",
-        }),
-      });
+    if (insertError) {
+      console.error("Error inserting email log:", insertError);
     }
 
-    // Return auto-reply message for Cloudflare Worker to send
-    const autoReplyMessage = emailAccount.auto_reply_message || 
-      "Terima kasih atas email Anda. Saya sedang tidak tersedia saat ini dan akan membalas sesegera mungkin.";
+    // Return auto-reply if enabled
+    if (emailAccount.auto_reply_enabled) {
+      const autoReplyMessage = emailAccount.auto_reply_message || 
+        "Terima kasih atas email Anda. Saya akan membalas sesegera mungkin.";
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          autoReply: {
+            enabled: true,
+            message: autoReplyMessage,
+            replyTo: fromEmail,
+            subject: `Re: ${emailData.subject || "(No Subject)"}`,
+          },
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        autoReply: {
-          enabled: true,
-          message: autoReplyMessage,
-          replyTo: fromEmail,
-          subject: `Re: ${emailData.subject || "(No Subject)"}`,
-        },
-      }),
+      JSON.stringify({ success: true, message: "Email logged" }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: unknown) {
@@ -121,7 +111,3 @@ serve(async (req: Request): Promise<Response> => {
     );
   }
 });
-
-function escapeMarkdown(text: string): string {
-  return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, "\\$&");
-}
