@@ -1,0 +1,17 @@
+{
+  "name": "otp-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for OTP notifications from Outlook",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "isomorphic-fetch": "^3.0.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "dotenv": "^16.3.1"
+  }
+}
