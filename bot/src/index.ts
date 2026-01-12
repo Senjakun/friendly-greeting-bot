@@ -18,8 +18,18 @@ if (!BOT_TOKEN || !OWNER_ID || !API_URL) {
 // Initialize Bot
 const bot = new Bot(BOT_TOKEN);
 
+// API Response types
+interface ApiResponse<T = any> {
+  error?: string;
+  user?: T;
+  users?: T[];
+  account?: T;
+  logs?: T[];
+  approved?: boolean;
+}
+
 // API Helper - calls Edge Function instead of Supabase directly
-async function api(method: string, path: string, body?: any) {
+async function api<T = any>(method: string, path: string, body?: any): Promise<ApiResponse<T>> {
   const url = `${API_URL}${path}`;
   const options: RequestInit = {
     method,
@@ -32,7 +42,7 @@ async function api(method: string, path: string, body?: any) {
     options.body = JSON.stringify(body);
   }
   const response = await fetch(url, options);
-  return response.json();
+  return response.json() as Promise<ApiResponse<T>>;
 }
 
 // Helper functions
@@ -48,7 +58,7 @@ async function getOrCreateUser(telegramUser: any) {
 
 async function isUserApproved(telegramId: number): Promise<boolean> {
   const result = await api("GET", `/user/approved?telegram_id=${telegramId}`);
-  return result.approved;
+  return result.approved ?? false;
 }
 
 function isOwner(telegramId: number): boolean {
