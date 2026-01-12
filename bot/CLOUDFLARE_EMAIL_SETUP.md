@@ -128,26 +128,52 @@ ${params.body}`;
 
 4. Klik **"Save and Deploy"**
 
-### Langkah 3.3: Set Environment Variable
+### Langkah 3.3: Set Webhook URL
 
-1. Di halaman Worker, klik tab **"Settings"**
-2. Scroll ke bagian **"Variables and Secrets"**
-3. Klik **"Add"** di bagian Environment Variables
-4. Tambahkan:
-   - **Variable name**: `EMAIL_WEBHOOK_URL`
-   - **Value**: `http://IP_PTERODACTYL:PORT/email-webhook`
-   
-   Contoh nilai:
-   ```
-   http://123.456.789.10:3000/email-webhook
-   ```
-   
-   Atau jika pakai domain:
-   ```
-   https://bot.example.com/email-webhook
+Ada 2 cara untuk set webhook URL:
+
+#### Cara 1: Hardcode di Code (Paling Mudah) ✅
+
+Edit code worker, ganti `env.EMAIL_WEBHOOK_URL` dengan URL langsung:
+
+```javascript
+// Ganti baris ini:
+const response = await fetch(env.EMAIL_WEBHOOK_URL, {
+
+// Menjadi (ganti dengan URL bot kamu):
+const response = await fetch("https://bot.example.com/email-webhook", {
+```
+
+Contoh URL:
+- `http://123.456.789.10:3000/email-webhook` (IP publik)
+- `https://bot.example.com/email-webhook` (domain + Cloudflare Tunnel)
+
+Klik **"Save and Deploy"**
+
+#### Cara 2: Pakai Wrangler CLI (Production)
+
+1. Install Wrangler:
+   ```bash
+   npm install -g wrangler
+   wrangler login
    ```
 
-5. Klik **"Save and Deploy"**
+2. Buat file `wrangler.toml`:
+   ```toml
+   name = "email-forwarder"
+   main = "src/index.ts"
+   compatibility_date = "2024-01-01"
+   
+   [vars]
+   EMAIL_WEBHOOK_URL = "https://bot.example.com/email-webhook"
+   ```
+
+3. Deploy:
+   ```bash
+   wrangler deploy
+   ```
+
+> 💡 **Tip**: Untuk pemula, pakai Cara 1 saja. Lebih simpel!
 
 ---
 
