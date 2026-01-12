@@ -1,83 +1,69 @@
-# OTP Telegram Bot (VPS Version)
+# 🤖 OTP Telegram Bot
 
 Bot Telegram untuk menerima notifikasi OTP dari email Outlook/Microsoft 365.
 
-## Fitur
+## ✨ Fitur
 
-- ✅ Setup via Telegram (tidak perlu edit .env untuk Microsoft)
-- ✅ User approval system (hanya user yang disetujui bisa akses)
-- ✅ Auto-extract OTP dari isi email
-- ✅ Kirim notifikasi ke semua approved users
+- ✅ **Web Setup Wizard** - Konfigurasi via browser, tanpa edit file
+- ✅ **1 Command Install** - Instalasi otomatis dengan satu perintah
+- ✅ **User Approval System** - Hanya user approved yang bisa akses
+- ✅ **Auto-extract OTP** - Deteksi otomatis kode OTP dari email
+- ✅ **Broadcast** - Kirim pesan ke semua user
+- ✅ **Inbox Viewer** - Lihat inbox langsung dari Telegram
 
-## Quick Start
+---
 
-### 1. Buat Telegram Bot
+## 🚀 Quick Install (1 Command)
 
-1. Chat [@BotFather](https://t.me/BotFather)
-2. Kirim `/newbot`, ikuti instruksi
-3. Catat **BOT TOKEN**
-
-### 2. Dapatkan Owner ID
-
-1. Chat [@userinfobot](https://t.me/userinfobot)
-2. Kirim `/start`
-3. Catat **ID** kamu (angka)
-
-### 3. Setup di VPS
+SSH ke VPS kamu, lalu jalankan:
 
 ```bash
-cd vps-bot
+curl -fsSL https://raw.githubusercontent.com/YOUR_REPO/otp-bot/main/install.sh | bash
+```
+
+Atau manual:
+
+```bash
+git clone https://github.com/YOUR_REPO/otp-bot.git
+cd otp-bot
 npm install
-
-# Setup .env
-cp .env.example .env
-nano .env
-```
-
-Isi .env:
-```env
-TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
-OWNER_ID=123456789
-```
-
-### 4. Jalankan Bot
-
-```bash
 npm start
 ```
 
-### 5. Setup Microsoft via Telegram
+---
 
-Chat bot kamu, kirim commands:
+## 🌐 Setup via Browser
+
+Setelah install, buka browser:
 
 ```
-/setup
-/setclientid <your_client_id>
-/setsecret <your_client_secret>
-/settenant <your_tenant_id>
-/setoutlook <your_email@outlook.com>
-/startbot
+http://YOUR_VPS_IP:3000
 ```
 
-## Owner Commands
+Isi:
+1. **Bot Token** - Dari @BotFather
+2. **Owner ID** - Dari @userinfobot
+
+Klik "Setup Bot" dan selesai! 🎉
+
+---
+
+## 📋 Owner Commands
 
 | Command | Fungsi |
 |---------|--------|
-| `/setup` | Panduan setup |
-| `/setclientid <id>` | Set Microsoft Client ID |
-| `/setsecret <secret>` | Set Client Secret |
-| `/settenant <id>` | Set Tenant ID |
-| `/setoutlook <email>` | Set email yang dimonitor |
-| `/setinterval <sec>` | Set polling interval |
-| `/settings` | Lihat settings |
-| `/startbot` | Mulai monitoring |
+| `/approve <id/@username>` | Approve user |
+| `/revoke <id/@username>` | Revoke akses user |
+| `/users` | Lihat semua approved users |
+| `/broadcast <pesan>` | Kirim pesan ke semua user |
+| `/setclient` | Setup Microsoft credentials (interactive) |
+| `/inbox` | Lihat 10 email terbaru |
+| `/check` | Cek email baru sekarang |
+| `/settings` | Lihat current settings |
+| `/startbot` | Mulai monitoring email |
 | `/stopbot` | Stop monitoring |
-| `/adduser <id>` | Approve user |
-| `/removeuser <id>` | Remove user |
-| `/users` | List approved users |
-| `/testmail` | Kirim test notification |
 
-## User Commands
+## 📱 User Commands
 
 | Command | Fungsi |
 |---------|--------|
@@ -85,54 +71,113 @@ Chat bot kamu, kirim commands:
 | `/myid` | Lihat Telegram ID |
 | `/status` | Cek status bot |
 
-## User Approval Flow
+---
 
-1. User baru chat bot → dapat pesan "belum disetujui" + ID nya
-2. User kirim ID ke owner
-3. Owner ketik `/adduser <id>` → User ter-approve
-4. User sekarang bisa terima notifikasi OTP
+## 👥 User Approval Flow
 
-## Run dengan PM2
-
-```bash
-npm install -g pm2
-pm2 start index.js --name otp-bot
-pm2 startup
-pm2 save
-pm2 logs otp-bot
+```
+1. User baru chat bot
+   ↓
+2. Bot tampilkan: "Belum disetujui" + ID nya
+   ↓
+3. User kirim ID ke owner
+   ↓
+4. Owner: /approve 123456789
+   ↓
+5. User ter-approve ✅
 ```
 
-## Azure App Registration
+---
+
+## ⚙️ Microsoft Setup (via Telegram)
+
+Chat bot kamu, ketik `/setclient`, lalu ikuti langkah:
+
+1. Masukkan Client ID
+2. Masukkan Client Secret
+3. Masukkan Tenant ID
+4. Masukkan Email yang dimonitor
+5. Masukkan Interval polling
+
+Setelah selesai, ketik `/startbot` untuk mulai monitoring.
+
+---
+
+## 🔧 Azure App Registration
 
 1. Buka [portal.azure.com](https://portal.azure.com)
-2. Cari "App registrations" → New registration
-3. Nama: `OTP Bot`
-4. Register
+2. Cari "App registrations" → **New registration**
+3. Nama: `OTP Bot` → Register
 
-5. Catat:
-   - Application (client) ID → `/setclientid`
-   - Directory (tenant) ID → `/settenant`
+4. **Catat:**
+   - Application (client) ID
+   - Directory (tenant) ID
 
-6. Certificates & secrets → New client secret
-   - Catat Value → `/setsecret`
+5. **Certificates & secrets** → New client secret
+   - Catat Value
 
-7. API permissions → Add permission → Microsoft Graph:
-   - `Mail.Read` (Application)
-   - Grant admin consent
+6. **API permissions** → Add permission → Microsoft Graph:
+   - `Mail.Read` (Application type)
+   - Click "Grant admin consent"
 
-## Data Storage
+---
 
-Settings dan approved users disimpan di `data.json`:
-```json
-{
-  "settings": {
-    "ms_client_id": "...",
-    "ms_client_secret": "...",
-    "ms_tenant_id": "...",
-    "ms_user_email": "...",
-    "poll_interval": 30
-  },
-  "approved_users": ["owner_id", "user2_id"],
-  "processed_emails": []
-}
+## 🔄 PM2 Commands
+
+```bash
+pm2 status          # Cek status
+pm2 logs otp-bot    # Lihat logs
+pm2 restart otp-bot # Restart bot
+pm2 stop otp-bot    # Stop bot
+pm2 delete otp-bot  # Hapus dari PM2
 ```
+
+---
+
+## 📁 File Structure
+
+```
+otp-bot/
+├── index.js           # Main bot code
+├── package.json       # Dependencies
+├── ecosystem.config.cjs # PM2 config
+├── config.json        # Bot token & owner ID (auto-generated)
+└── data.json          # Settings & users (auto-generated)
+```
+
+---
+
+## 🛡️ Security Notes
+
+- Client Secret otomatis dihapus dari chat setelah dikirim
+- config.json berisi credential, jangan share!
+- Hanya owner yang bisa approve/revoke user
+- Setup wizard otomatis tutup setelah konfigurasi selesai
+
+---
+
+## ❓ Troubleshooting
+
+**Port 3000 tidak bisa diakses?**
+```bash
+sudo ufw allow 3000
+# atau
+sudo firewall-cmd --add-port=3000/tcp --permanent
+sudo firewall-cmd --reload
+```
+
+**Bot tidak jalan setelah restart VPS?**
+```bash
+pm2 startup
+pm2 save
+```
+
+**Error "Auth error"?**
+- Pastikan Client ID, Secret, dan Tenant ID benar
+- Pastikan API permission sudah di-grant admin consent
+
+---
+
+## 📞 Support
+
+Buat issue di GitHub jika ada masalah.
