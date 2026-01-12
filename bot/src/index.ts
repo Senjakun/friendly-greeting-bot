@@ -1,71 +1,54 @@
 import "dotenv/config";
-import { Bot, Context, session } from "grammy";
+import { Bot } from "grammy";
 import express from "express";
-import { createClient } from "@supabase/supabase-js";
 
 // Environment variables
 const BOT_TOKEN = process.env.BOT_TOKEN!;
 const OWNER_ID = parseInt(process.env.OWNER_ID!);
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const API_URL = process.env.API_URL!; // Edge Function URL
 const PORT = parseInt(process.env.PORT || "3000");
 
 // Validate env
-if (!BOT_TOKEN || !OWNER_ID || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+if (!BOT_TOKEN || !OWNER_ID || !API_URL) {
   console.error("Missing required environment variables!");
-  console.error("Required: BOT_TOKEN, OWNER_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY");
+  console.error("Required: BOT_TOKEN, OWNER_ID, API_URL");
   process.exit(1);
 }
-
-// Initialize Supabase
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Initialize Bot
 const bot = new Bot(BOT_TOKEN);
 
+// API Helper - calls Edge Function instead of Supabase directly
+async function api(method: string, path: string, body?: any) {
+  const url = `${API_URL}${path}`;
+  const options: RequestInit = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "x-bot-token": BOT_TOKEN,
+    },
+  };
+  if (body) {
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, options);
+  return response.json();
+}
+
 // Helper functions
 async function getOrCreateUser(telegramUser: any) {
-  const { data: existingUser } = await supabase
-    .from("telegram_users")
-    .select("*")
-    .eq("telegram_id", telegramUser.id)
-    .single();
-
-  if (existingUser) {
-    return existingUser;
-  }
-
-  const { data: newUser, error } = await supabase
-    .from("telegram_users")
-    .insert({
-      telegram_id: telegramUser.id,
-      username: telegramUser.username || null,
-      first_name: telegramUser.first_name || null,
-      last_name: telegramUser.last_name || null,
-      status: "pending",
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Error creating user:", error);
-    return null;
-  }
-
-  return newUser;
+  const result = await api("POST", "/user", {
+    telegram_id: telegramUser.id,
+    username: telegramUser.username || null,
+    first_name: telegramUser.first_name || null,
+    last_name: telegramUser.last_name || null,
+  });
+  return result.user;
 }
 
 async function isUserApproved(telegramId: number): Promise<boolean> {
-  const { data: user } = await supabase
-    .from("telegram_users")
-    .select("status, expires_at")
-    .eq("telegram_id", telegramId)
-    .single();
-
-  if (!user || user.status !== "approved") return false;
-  if (user.expires_at && new Date(user.expires_at) < new Date()) return false;
-
-  return true;
+  const result = await api("GET", `/user/approved?telegram_id=${telegramId}`);
+  return result.approved;
 }
 
 function isOwner(telegramId: number): boolean {
@@ -109,14 +92,6 @@ bot.command("verify", async (ctx) => {
 
   if (user.status === "approved") {
     return ctx.reply("✅ Akun kamu sudah terverifikasi!");
-  }
-
-  // Update to pending if rejected/expired
-  if (user.status === "rejected" || user.status === "expired") {
-    await supabase
-      .from("telegram_users")
-      .update({ status: "pending" })
-      .eq("telegram_id", ctx.from!.id);
   }
 
   // Notify owner
@@ -168,46 +143,19 @@ bot.command("inbox", async (ctx) => {
     return ctx.reply("❌ Kamu belum disetujui. Gunakan /verify untuk verifikasi.");
   }
 
-  // Get user's email account
-  const { data: user } = await supabase
-    .from("telegram_users")
-    .select("id")
-    .eq("telegram_id", ctx.from!.id)
-    .single();
+  const result = await api("GET", `/email-logs?telegram_id=${ctx.from!.id}&limit=5`);
+  const emails = result.logs || [];
 
-  if (!user) {
-    return ctx.reply("❌ User tidak ditemukan.");
-  }
-
-  const { data: emailAccount } = await supabase
-    .from("email_accounts")
-    .select("id, email")
-    .eq("telegram_user_id", user.id)
-    .eq("is_active", true)
-    .single();
-
-  if (!emailAccount) {
-    return ctx.reply("📭 Kamu belum memiliki email yang terhubung.");
-  }
-
-  // Get recent emails
-  const { data: emails } = await supabase
-    .from("email_logs")
-    .select("*")
-    .eq("email_account_id", emailAccount.id)
-    .order("replied_at", { ascending: false })
-    .limit(5);
-
-  if (!emails || emails.length === 0) {
+  if (emails.length === 0) {
     return ctx.reply("📭 Tidak ada email terbaru.");
   }
 
   let message = `📬 *Email Terakhir*\n\n`;
-  emails.forEach((email, i) => {
+  emails.forEach((email: any, i: number) => {
     const date = new Date(email.replied_at).toLocaleString("id-ID");
     message += `${i + 1}\\. *${escapeMarkdown(email.subject || "No Subject")}*\n`;
     message += `   From: ${escapeMarkdown(email.from_email)}\n`;
-    message += `   ${date}\n\n`;
+    message += `   ${escapeMarkdown(date)}\n\n`;
   });
 
   await ctx.reply(message, { parse_mode: "MarkdownV2" });
@@ -236,48 +184,16 @@ bot.command("setemail", async (ctx) => {
     return ctx.reply("❌ Format email tidak valid.");
   }
 
-  // Get user
-  const { data: user } = await supabase
-    .from("telegram_users")
-    .select("id")
-    .eq("telegram_id", ctx.from!.id)
-    .single();
+  // Create email account via API
+  const result = await api("POST", "/email-account", {
+    telegram_id: ctx.from!.id,
+    email: email,
+    auto_reply_enabled: true,
+    auto_reply_message: "Terima kasih atas email Anda. Saya akan membalas secepatnya.",
+  });
 
-  if (!user) {
-    return ctx.reply("❌ User tidak ditemukan.");
-  }
-
-  // Check if email already exists
-  const { data: existingEmail } = await supabase
-    .from("email_accounts")
-    .select("id")
-    .eq("email", email)
-    .single();
-
-  if (existingEmail) {
-    return ctx.reply("❌ Email ini sudah digunakan.");
-  }
-
-  // Deactivate old email accounts for this user
-  await supabase
-    .from("email_accounts")
-    .update({ is_active: false })
-    .eq("telegram_user_id", user.id);
-
-  // Create new email account
-  const { error } = await supabase
-    .from("email_accounts")
-    .insert({
-      telegram_user_id: user.id,
-      email: email,
-      is_active: true,
-      auto_reply_enabled: true,
-      auto_reply_message: "Terima kasih atas email Anda. Saya akan membalas secepatnya.",
-    });
-
-  if (error) {
-    console.error("Error creating email account:", error);
-    return ctx.reply(`❌ Gagal menyimpan email: ${error.message}`);
+  if (result.error) {
+    return ctx.reply(`❌ Gagal menyimpan email: ${result.error}`);
   }
 
   await ctx.reply(
@@ -304,26 +220,14 @@ bot.command("setreply", async (ctx) => {
     );
   }
 
-  // Get user
-  const { data: user } = await supabase
-    .from("telegram_users")
-    .select("id")
-    .eq("telegram_id", ctx.from!.id)
-    .single();
+  // Update via API
+  const result = await api("POST", "/email-account", {
+    telegram_id: ctx.from!.id,
+    auto_reply_message: message,
+  });
 
-  if (!user) {
-    return ctx.reply("❌ User tidak ditemukan.");
-  }
-
-  // Update auto reply message
-  const { error } = await supabase
-    .from("email_accounts")
-    .update({ auto_reply_message: message })
-    .eq("telegram_user_id", user.id)
-    .eq("is_active", true);
-
-  if (error) {
-    return ctx.reply(`❌ Gagal update: ${error.message}`);
+  if (result.error) {
+    return ctx.reply(`❌ Gagal update: ${result.error}`);
   }
 
   await ctx.reply(
@@ -338,24 +242,8 @@ bot.command("myemail", async (ctx) => {
     return ctx.reply("❌ Kamu belum disetujui. Gunakan /verify untuk verifikasi.");
   }
 
-  // Get user
-  const { data: user } = await supabase
-    .from("telegram_users")
-    .select("id")
-    .eq("telegram_id", ctx.from!.id)
-    .single();
-
-  if (!user) {
-    return ctx.reply("❌ User tidak ditemukan.");
-  }
-
-  // Get email account
-  const { data: emailAccount } = await supabase
-    .from("email_accounts")
-    .select("*")
-    .eq("telegram_user_id", user.id)
-    .eq("is_active", true)
-    .single();
+  const result = await api("GET", `/email-account?telegram_id=${ctx.from!.id}`);
+  const emailAccount = result.account;
 
   if (!emailAccount) {
     return ctx.reply("📭 Kamu belum memiliki email yang terdaftar.\n\nGunakan /setemail untuk mendaftarkan email.");
@@ -406,24 +294,20 @@ bot.command("approve", async (ctx) => {
 
   const args = ctx.message!.text!.split(" ");
   if (args.length < 2) {
-    return ctx.reply("Usage: /approve <telegram_id>");
+    return ctx.reply("Usage: /approve <telegram_id> [days]");
   }
 
   const targetId = parseInt(args[1]);
+  const days = args[2] ? parseInt(args[2]) : null;
+  
   if (isNaN(targetId)) {
     return ctx.reply("❌ ID tidak valid.");
   }
 
-  const { error } = await supabase
-    .from("telegram_users")
-    .update({
-      status: "approved",
-      verified_at: new Date().toISOString(),
-    })
-    .eq("telegram_id", targetId);
+  const result = await api("POST", "/user/approve", { telegram_id: targetId, days });
 
-  if (error) {
-    return ctx.reply(`❌ Gagal approve: ${error.message}`);
+  if (result.error) {
+    return ctx.reply(`❌ Gagal approve: ${result.error}`);
   }
 
   // Notify user
@@ -451,13 +335,10 @@ bot.command("revoke", async (ctx) => {
     return ctx.reply("❌ ID tidak valid.");
   }
 
-  const { error } = await supabase
-    .from("telegram_users")
-    .update({ status: "rejected" })
-    .eq("telegram_id", targetId);
+  const result = await api("POST", "/user/revoke", { telegram_id: targetId });
 
-  if (error) {
-    return ctx.reply(`❌ Gagal revoke: ${error.message}`);
+  if (result.error) {
+    return ctx.reply(`❌ Gagal revoke: ${result.error}`);
   }
 
   // Notify user
@@ -475,15 +356,8 @@ bot.command("users", async (ctx) => {
     return ctx.reply("❌ Perintah ini hanya untuk owner.");
   }
 
-  const { data: users, error } = await supabase
-    .from("telegram_users")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  if (error || !users) {
-    return ctx.reply("❌ Gagal mengambil data users.");
-  }
+  const result = await api("GET", "/users");
+  const users = result.users || [];
 
   if (users.length === 0) {
     return ctx.reply("📭 Tidak ada users.");
@@ -497,7 +371,7 @@ bot.command("users", async (ctx) => {
   };
 
   let message = `👥 *Users \\(${users.length}\\)*\n\n`;
-  users.forEach((user, i) => {
+  users.slice(0, 20).forEach((user: any, i: number) => {
     message += `${i + 1}\\. ${statusEmoji[user.status as keyof typeof statusEmoji]} `;
     message += `\`${user.telegram_id}\`\n`;
     message += `   @${user.username || "none"} \\- ${escapeMarkdown(user.first_name || "")}\n`;
@@ -516,19 +390,17 @@ bot.command("broadcast", async (ctx) => {
     return ctx.reply("Usage: /broadcast <message>");
   }
 
-  const { data: users } = await supabase
-    .from("telegram_users")
-    .select("telegram_id")
-    .eq("status", "approved");
+  const result = await api("GET", "/users/approved");
+  const users = result.users || [];
 
-  if (!users || users.length === 0) {
+  if (users.length === 0) {
     return ctx.reply("📭 Tidak ada approved users.");
   }
 
   let sent = 0;
   for (const user of users) {
     try {
-      await bot.api.sendMessage(user.telegram_id, `📢 *Broadcast*\n\n${message}`, {
+      await bot.api.sendMessage(user.telegram_id, `📢 *Broadcast*\n\n${escapeMarkdown(message)}`, {
         parse_mode: "MarkdownV2",
       });
       sent++;
@@ -538,15 +410,12 @@ bot.command("broadcast", async (ctx) => {
   }
 
   // Log broadcast
-  await supabase.from("broadcast_messages").insert({
-    message,
-    recipients_count: sent,
-  });
+  await api("POST", "/broadcast", { message, recipients_count: sent });
 
   await ctx.reply(`✅ Broadcast terkirim ke ${sent}/${users.length} users.`);
 });
 
-// Express server for email webhook
+// Express server for email webhook (local webhook, calls API)
 const app = express();
 app.use(express.json());
 
@@ -565,17 +434,9 @@ app.post("/email-webhook", async (req, res) => {
 
     const recipientEmail = payload.to?.toLowerCase();
 
-    // Find email account
-    const { data: emailAccount } = await supabase
-      .from("email_accounts")
-      .select(`
-        *,
-        telegram_users!inner(telegram_id, status, expires_at)
-      `)
-      .eq("email", recipientEmail)
-      .eq("is_active", true)
-      .eq("auto_reply_enabled", true)
-      .single();
+    // Get email account via API
+    const result = await api("GET", `/email-account/by-email?email=${encodeURIComponent(recipientEmail)}`);
+    const emailAccount = result.account;
 
     if (!emailAccount) {
       console.log("No active email account found for:", recipientEmail);
@@ -594,7 +455,7 @@ app.post("/email-webhook", async (req, res) => {
     }
 
     // Log email
-    await supabase.from("email_logs").insert({
+    await api("POST", "/email-log", {
       email_account_id: emailAccount.id,
       from_email: payload.from,
       subject: payload.subject || "No Subject",
@@ -640,6 +501,7 @@ app.get("/health", (req, res) => {
 // Start bot and server
 async function main() {
   console.log("🚀 Starting Auto Reply Bot...");
+  console.log(`📡 API URL: ${API_URL}`);
 
   // Start Express server
   app.listen(PORT, () => {

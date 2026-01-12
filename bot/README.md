@@ -1,81 +1,78 @@
-# Auto Reply AI Bot - Pterodactyl Standalone
+# Telegram Bot - Auto Reply
 
-Bot Telegram untuk auto-reply email dengan Cloudflare Email Workers.
+Bot Telegram untuk auto-reply email.
 
-## Requirements
+## Environment Variables
 
-- Node.js 18+ atau Deno
-- Supabase account (untuk database)
-- Telegram Bot Token
-- Cloudflare account (untuk email workers)
+```env
+# Telegram Bot
+BOT_TOKEN=your_telegram_bot_token_from_botfather
+OWNER_ID=your_telegram_id_number
+
+# API (Edge Function URL)
+API_URL=https://ubgjcqgqlzzdnywjjhew.supabase.co/functions/v1/bot-api
+
+# Server (optional, default 3000)
+PORT=3000
+```
 
 ## Setup
 
-### 1. Environment Variables
-
-Copy `.env.example` ke `.env` dan isi:
+### 1. Buat file `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
-```
-BOT_TOKEN=your_telegram_bot_token
-OWNER_ID=your_telegram_user_id
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-```
+Isi dengan nilai yang benar:
+- `BOT_TOKEN`: Dapat dari @BotFather di Telegram
+- `OWNER_ID`: Telegram ID kamu (dapat dari @userinfobot)
+- `API_URL`: URL Edge Function (sudah terisi default)
 
-### 2. Database Setup
-
-Jalankan SQL di Supabase SQL Editor:
-
-```sql
--- Lihat file database/schema.sql
-```
-
-### 3. Install Dependencies
+### 2. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 4. Run Bot
+### 3. Build & Run
 
 ```bash
+npm run build
 npm start
 ```
 
-Atau dengan Deno:
-```bash
-deno run --allow-net --allow-env bot.ts
+## Arsitektur
+
+Bot menggunakan **Edge Function API** - tidak perlu service_role_key.
+
+```
+┌─────────────┐    HTTP     ┌──────────────┐    SQL    ┌──────────┐
+│ Telegram    │ ─────────▶  │ Edge         │ ────────▶ │ Database │
+│ Bot         │             │ Function API │           │          │
+│ (Pterodactyl)│ ◀───────── │ (bot-api)    │ ◀──────── │          │
+└─────────────┘   Response  └──────────────┘           └──────────┘
 ```
 
-## Pterodactyl Egg
-
-Untuk Pterodactyl, gunakan egg Node.js generic dan set:
-- Startup Command: `npm start`
-- Node Version: 18+
-
-## Cloudflare Email Worker
-
-Setup webhook di Cloudflare untuk forward email ke endpoint:
-```
-POST https://your-server.com/email-webhook
-```
+**Keuntungan:**
+- ✅ Tidak perlu `SUPABASE_SERVICE_ROLE_KEY`
+- ✅ Lebih aman (secret tidak di server eksternal)
+- ✅ Mudah di-deploy di Pterodactyl
 
 ## Commands
 
 ### User Commands
-- `/start` - Mulai bot dan daftar
+- `/start` - Mulai bot
 - `/verify` - Verifikasi akun
 - `/status` - Cek status akun
+- `/setemail` - Daftarkan email
+- `/setreply` - Set pesan auto-reply
+- `/myemail` - Lihat email terdaftar
 - `/inbox` - Lihat email terakhir
-- `/help` - Bantuan
+- `/help` - Tampilkan bantuan
 
 ### Owner Commands
-- `/approve [telegram_id]` - Approve user
-- `/revoke [telegram_id]` - Revoke user access
+- `/approve <id> [days]` - Approve user
+- `/revoke <id>` - Revoke user
 - `/users` - Lihat semua users
-- `/broadcast [message]` - Kirim pesan ke semua approved users
+- `/broadcast <msg>` - Broadcast pesan
