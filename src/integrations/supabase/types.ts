@@ -67,42 +67,33 @@ export type Database = {
       }
       email_accounts: {
         Row: {
-          access_token: string | null
           auto_reply_enabled: boolean
           auto_reply_message: string | null
           created_at: string
           email: string
           id: string
           is_active: boolean
-          refresh_token: string | null
           telegram_user_id: string | null
-          token_expires_at: string | null
           updated_at: string
         }
         Insert: {
-          access_token?: string | null
           auto_reply_enabled?: boolean
           auto_reply_message?: string | null
           created_at?: string
           email: string
           id?: string
           is_active?: boolean
-          refresh_token?: string | null
           telegram_user_id?: string | null
-          token_expires_at?: string | null
           updated_at?: string
         }
         Update: {
-          access_token?: string | null
           auto_reply_enabled?: boolean
           auto_reply_message?: string | null
           created_at?: string
           email?: string
           id?: string
           is_active?: boolean
-          refresh_token?: string | null
           telegram_user_id?: string | null
-          token_expires_at?: string | null
           updated_at?: string
         }
         Relationships: [
