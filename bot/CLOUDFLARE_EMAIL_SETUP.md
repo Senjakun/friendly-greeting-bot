@@ -1,80 +1,83 @@
-# Tutorial Lengkap: Setup Cloudflare Email Worker
+# Setup Email Cloudflare → Telegram (Simpel!)
 
-## Daftar Isi
-1. [Persiapan](#1-persiapan)
-2. [Setup Domain di Cloudflare](#2-setup-domain-di-cloudflare)
-3. [Buat Worker](#3-buat-worker)
-4. [Setup Email Routing](#4-setup-email-routing)
-5. [Konfigurasi Bot](#5-konfigurasi-bot)
-6. [Testing](#6-testing)
-7. [Troubleshooting](#7-troubleshooting)
+## Cara Kerja
 
----
+```
+📧 Email masuk ke alamat@domain.com
+        ↓
+☁️ Cloudflare Email Routing
+        ↓
+⚡ Supabase Edge Function (sudah online!)
+        ↓
+💾 Simpan ke Database + Kirim notifikasi ke Telegram
+        ↓
+📱 Kamu terima notifikasi di Telegram + pengirim dapat auto-reply
+```
 
-## 1. Persiapan
-
-### Yang Dibutuhkan:
-- ✅ Domain sendiri (contoh: `example.com`)
+**Yang kamu butuhkan:**
+- ✅ Domain di Cloudflare (gratis)
 - ✅ Akun Cloudflare (gratis)
-- ✅ Bot sudah running di Pterodactyl
-- ✅ IP/Domain Pterodactyl yang bisa diakses dari internet
 
-### Opsional tapi Direkomendasikan:
-- Cloudflare Tunnel (jika tidak punya IP publik)
+**Yang SUDAH ADA:**
+- ✅ Supabase Edge Function (`email-webhook`) - webhook penerima email
+- ✅ Bot Telegram - untuk notifikasi
+
+**Yang TIDAK perlu:**
+- ❌ Expose Pterodactyl ke internet
+- ❌ Setup reverse proxy / Cloudflare Tunnel
+- ❌ IP publik
 
 ---
 
-## 2. Setup Domain di Cloudflare
+## Langkah 1: Setup Domain di Cloudflare
 
-### Langkah 2.1: Tambah Domain ke Cloudflare
+### 1.1 Tambah Domain
 
 1. Login ke [Cloudflare Dashboard](https://dash.cloudflare.com)
 2. Klik **"Add a Site"**
-3. Masukkan nama domain kamu (contoh: `example.com`)
+3. Masukkan domain (contoh: `example.com`)
 4. Pilih plan **Free**
-5. Cloudflare akan scan DNS records yang ada
 
-### Langkah 2.2: Update Nameservers
+### 1.2 Update Nameservers
 
-1. Setelah menambahkan site, Cloudflare akan memberikan 2 nameservers:
+1. Cloudflare kasih 2 nameservers, contoh:
    ```
-   ns1.cloudflare.com
-   ns2.cloudflare.com
+   ada.ns.cloudflare.com
+   bob.ns.cloudflare.com
    ```
-2. Pergi ke domain registrar kamu (tempat beli domain)
-3. Update nameservers ke yang diberikan Cloudflare
-4. Tunggu propagasi DNS (bisa sampai 24 jam, biasanya 1-2 jam)
+2. Pergi ke tempat beli domain (registrar)
+3. Ganti nameservers ke yang dari Cloudflare
+4. Tunggu propagasi (1-24 jam)
 
-### Langkah 2.3: Verifikasi Domain Aktif
+### 1.3 Verifikasi
 
-1. Di Cloudflare Dashboard, buka domain kamu
-2. Pastikan status menunjukkan **"Active"** (centang hijau)
+Di Cloudflare Dashboard, pastikan domain status **"Active"** ✅
 
 ---
 
-## 3. Buat Worker
+## Langkah 2: Buat Worker
 
-### Langkah 3.1: Buka Workers & Pages
+### 2.1 Buat Worker Baru
 
-1. Di Cloudflare Dashboard, klik **"Workers & Pages"** di sidebar kiri
-2. Klik **"Create application"**
+1. Di sidebar, klik **"Workers & Pages"**
+2. Klik **"Create"**
 3. Pilih **"Create Worker"**
-4. Beri nama, contoh: `email-forwarder`
+4. Nama: `email-forwarder`
 5. Klik **"Deploy"**
 
-### Langkah 3.2: Edit Worker Code
+### 2.2 Edit Code
 
-1. Setelah deploy, klik **"Edit code"**
-2. Hapus semua code yang ada
-3. Copy-paste code berikut:
+1. Klik **"Edit code"**
+2. Hapus semua, paste ini:
 
 ```javascript
 export default {
   async email(message, env) {
-    // Extract email content
     const rawEmail = await new Response(message.raw).text();
     
-    // Parse basic info
+    // Ganti URL ini dengan URL Supabase Edge Function kamu
+    const WEBHOOK_URL = "https://ubgjcqgqlzzdnywjjhew.supabase.co/functions/v1/email-webhook";
+    
     const payload = {
       from: message.from,
       to: message.to,
@@ -84,26 +87,22 @@ export default {
     };
 
     try {
-      // Send to your bot webhook
-      const response = await fetch(env.EMAIL_WEBHOOK_URL, {
+      const response = await fetch(WEBHOOK_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       const result = await response.json();
 
-      // Send auto-reply if enabled
+      // Kirim auto-reply jika enabled
       if (result.success && result.autoReply?.enabled) {
         const replyMessage = createMIMEMessage({
-          from: result.autoReply.from,
-          to: result.autoReply.to,
+          from: message.to,  // Balas dari alamat tujuan
+          to: result.autoReply.replyTo,
           subject: result.autoReply.subject,
           body: result.autoReply.message,
         });
-
         await message.reply(replyMessage);
       }
     } catch (error) {
@@ -114,302 +113,167 @@ export default {
 
 function createMIMEMessage(params) {
   const encoder = new TextEncoder();
-  const message = `From: ${params.from}
+  const msg = `From: ${params.from}
 To: ${params.to}
 Subject: ${params.subject}
 Content-Type: text/plain; charset=utf-8
 MIME-Version: 1.0
 
 ${params.body}`;
-
-  return new EmailMessage(params.from, params.to, encoder.encode(message));
+  return new EmailMessage(params.from, params.to, encoder.encode(msg));
 }
 ```
 
-4. Klik **"Save and Deploy"**
-
-### Langkah 3.3: Set Webhook URL
-
-Ada 2 cara untuk set webhook URL:
-
-#### Cara 1: Hardcode di Code (Paling Mudah) ✅
-
-Edit code worker, ganti `env.EMAIL_WEBHOOK_URL` dengan URL langsung:
-
-```javascript
-// Ganti baris ini:
-const response = await fetch(env.EMAIL_WEBHOOK_URL, {
-
-// Menjadi (ganti dengan URL bot kamu):
-const response = await fetch("https://bot.example.com/email-webhook", {
-```
-
-Contoh URL:
-- `http://123.456.789.10:3000/email-webhook` (IP publik)
-- `https://bot.example.com/email-webhook` (domain + Cloudflare Tunnel)
-
-Klik **"Save and Deploy"**
-
-#### Cara 2: Pakai Wrangler CLI (Production)
-
-1. Install Wrangler:
-   ```bash
-   npm install -g wrangler
-   wrangler login
-   ```
-
-2. Buat file `wrangler.toml`:
-   ```toml
-   name = "email-forwarder"
-   main = "src/index.ts"
-   compatibility_date = "2024-01-01"
-   
-   [vars]
-   EMAIL_WEBHOOK_URL = "https://bot.example.com/email-webhook"
-   ```
-
-3. Deploy:
-   ```bash
-   wrangler deploy
-   ```
-
-> 💡 **Tip**: Untuk pemula, pakai Cara 1 saja. Lebih simpel!
+3. Klik **"Save and Deploy"**
 
 ---
 
-## 4. Setup Email Routing
+## Langkah 3: Setup Email Routing
 
-### Langkah 4.1: Aktifkan Email Routing
+### 3.1 Aktifkan Email Routing
 
-1. Di Cloudflare Dashboard, pilih domain kamu
-2. Di sidebar, klik **"Email"** → **"Email Routing"**
+1. Pilih domain kamu di Cloudflare
+2. Sidebar → **"Email"** → **"Email Routing"**
 3. Klik **"Get started"** atau **"Enable Email Routing"**
-4. Cloudflare akan menambahkan DNS records secara otomatis:
-   - MX record pointing to Cloudflare
-   - TXT record untuk SPF
+4. DNS records akan ditambahkan otomatis
 
-### Langkah 4.2: Tambah Destination Address (Opsional)
+### 3.2 Buat Routing Rule
 
-Ini untuk verifikasi bahwa email routing bekerja:
+1. Tab **"Routing rules"**
+2. Klik **"Create address"** atau setup **"Catch-all"**
 
-1. Di tab **"Destination addresses"**
-2. Klik **"Add destination address"**
-3. Masukkan email pribadi kamu untuk testing
-4. Verifikasi email yang dikirim ke email tersebut
+**Opsi A: Email Spesifik**
+- Custom address: `support` (jadi `support@domain.com`)
+- Action: **"Send to a Worker"**
+- Pilih: `email-forwarder`
 
-### Langkah 4.3: Setup Routing Rules
+**Opsi B: Catch-All (Semua Email)**
+- Klik **"Catch-all address"**
+- Action: **"Send to a Worker"**
+- Pilih: `email-forwarder`
 
-1. Di tab **"Routing rules"**
-2. Klik **"Create address"** atau **"Add rule"**
-
-#### Opsi A: Catch-All (Semua Email)
-Untuk menerima email dari alamat apapun:
-
-1. Klik **"Catch-all address"**
-2. Action: **"Send to a Worker"**
-3. Pilih Worker yang tadi dibuat (`email-forwarder`)
-4. Klik **"Save"**
-
-#### Opsi B: Email Spesifik
-Untuk email tertentu saja:
-
-1. Klik **"Create address"**
-2. Custom address: masukkan prefix, contoh: `support`
-   - Ini akan jadi `support@example.com`
-3. Action: **"Send to a Worker"**
-4. Pilih Worker yang tadi dibuat
-5. Klik **"Save"**
+3. Klik **"Save"**
 
 ---
 
-## 5. Konfigurasi Bot
+## Langkah 4: Daftarkan Email di Database
 
-### Langkah 5.1: Pastikan Bot Accessible
+Kamu perlu daftarkan email di database supaya bot tahu kirim notifikasi ke siapa.
 
-Bot harus bisa diakses dari internet. Beberapa opsi:
+### Via Bot Telegram (Recommended)
 
-#### Opsi A: IP Publik
-Jika Pterodactyl punya IP publik:
+Kirim command ke bot:
 ```
-EMAIL_WEBHOOK_URL=http://IP_PUBLIK:3000/email-webhook
-```
-
-#### Opsi B: Port Forwarding
-Jika di belakang router:
-1. Forward port 3000 (atau port yang dipakai) ke IP lokal Pterodactyl
-2. Gunakan IP publik router
-
-#### Opsi C: Cloudflare Tunnel (Recommended)
-Jika tidak punya IP publik:
-
-1. Install `cloudflared` di server
-2. Buat tunnel:
-   ```bash
-   cloudflared tunnel create bot-tunnel
-   cloudflared tunnel route dns bot-tunnel bot.example.com
-   ```
-3. Konfigurasi tunnel untuk forward ke `localhost:3000`
-4. Gunakan:
-   ```
-   EMAIL_WEBHOOK_URL=https://bot.example.com/email-webhook
-   ```
-
-### Langkah 5.2: Update .env Bot
-
-```env
-BOT_TOKEN=your_telegram_bot_token
-OWNER_ID=your_telegram_user_id
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-PORT=3000
+/setemail support@domain.com
 ```
 
-### Langkah 5.3: Daftarkan Email di Database
-
-Di Supabase, insert email account:
+### Via SQL (Manual)
 
 ```sql
--- Pertama, dapatkan user ID dari telegram_users
-SELECT id FROM telegram_users WHERE telegram_id = YOUR_TELEGRAM_ID;
+-- 1. Cari user ID kamu
+SELECT id, telegram_id FROM telegram_users WHERE telegram_id = 123456789;
 
--- Kemudian insert email account
+-- 2. Daftarkan email
 INSERT INTO email_accounts (telegram_user_id, email, auto_reply_enabled, auto_reply_message, is_active)
 VALUES (
-  'USER_ID_DARI_QUERY_ATAS',
-  'support@example.com',
+  'UUID_DARI_QUERY_ATAS',
+  'support@domain.com',
   true,
-  'Terima kasih atas email Anda. Kami akan segera merespons.',
+  'Terima kasih atas email Anda. Saya akan segera membalas.',
   true
 );
 ```
 
 ---
 
-## 6. Testing
+## Langkah 5: Set BOT_TOKEN di Supabase
 
-### Test 1: Health Check
-Buka browser dan akses:
-```
-http://IP_PTERODACTYL:PORT/health
-```
-Harus return: `OK`
+Edge Function butuh BOT_TOKEN untuk kirim notifikasi ke Telegram.
 
-### Test 2: Kirim Test Email
-1. Kirim email ke alamat yang sudah dikonfigurasi (contoh: `support@example.com`)
-2. Cek Telegram, harusnya muncul notifikasi
-3. Pengirim email harus menerima auto-reply (jika enabled)
+Ini sudah diset jika kamu pakai Lovable Cloud. Kalau belum:
 
-### Test 3: Cek Worker Logs
-1. Di Cloudflare Dashboard → Workers → Worker kamu
-2. Klik tab **"Logs"**
-3. Klik **"Begin log stream"**
-4. Kirim test email dan lihat logs
+1. Buka Lovable → Settings → Secrets
+2. Tambah: `BOT_TOKEN` = token bot Telegram kamu
 
 ---
 
-## 7. Troubleshooting
+## Testing
 
-### Error: "Failed to fetch" di Worker
-
-**Penyebab**: Bot tidak bisa diakses dari internet
-
-**Solusi**:
-1. Pastikan port di-allow di firewall
-2. Cek apakah bot running: `curl http://localhost:3000/health`
-3. Coba pakai Cloudflare Tunnel
-
-### Error: "No email account found"
-
-**Penyebab**: Email tidak terdaftar di database
-
-**Solusi**:
-1. Pastikan email address persis sama dengan yang di-routing
-2. Pastikan `is_active = true` dan `auto_reply_enabled = true`
-3. Pastikan user status `approved` dan belum expired
-
-### Tidak Menerima Notifikasi Telegram
-
-**Penyebab**: Bot token atau chat ID salah
-
-**Solusi**:
-1. Pastikan `BOT_TOKEN` valid
-2. User harus sudah `/start` bot
-3. User harus sudah di-`/approve` oleh owner
-
-### Auto-Reply Tidak Terkirim
-
-**Penyebab**: SPF/DKIM tidak dikonfigurasi
-
-**Solusi**:
-Cloudflare Email Routing sudah handle ini otomatis, tapi pastikan:
-1. Email Routing status "Active"
-2. DNS records MX dan TXT sudah ter-setup
-
-### Worker Timeout
-
-**Penyebab**: Bot terlalu lama merespons
-
-**Solusi**:
-1. Cek koneksi database (Supabase)
-2. Optimalkan query database
-3. Pastikan bot tidak overloaded
+1. Kirim email ke `support@domain.com` (atau alamat yang kamu setup)
+2. Tunggu beberapa detik
+3. Cek Telegram - harusnya dapat notifikasi 📧
+4. Pengirim email dapat auto-reply
 
 ---
 
-## Diagram Flow
+## Troubleshooting
+
+### Tidak dapat notifikasi di Telegram
+
+1. **Cek user approved** - pastikan status kamu `approved` di database
+2. **Cek BOT_TOKEN** - pastikan secret BOT_TOKEN sudah diset
+3. **Cek email terdaftar** - pastikan email ada di `email_accounts` dengan `is_active = true`
+
+### Email tidak masuk
+
+1. **Cek Email Routing aktif** - di Cloudflare harus status Active
+2. **Cek Routing Rule** - pastikan sudah point ke Worker
+3. **Cek Worker logs** - di Cloudflare Workers → Logs
+
+### Auto-reply tidak terkirim
+
+1. **Cek auto_reply_enabled** - harus `true` di database
+2. **Cek Worker logs** - lihat error apa
+
+---
+
+## Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         EMAIL FLOW                               │
-└─────────────────────────────────────────────────────────────────┘
-
-    Pengirim                Cloudflare              Pterodactyl
-    ────────                ──────────              ───────────
-        │                        │                       │
-        │  1. Kirim email ke     │                       │
-        │     support@domain.com │                       │
-        │───────────────────────>│                       │
-        │                        │                       │
-        │                        │  2. Email Routing     │
-        │                        │     trigger Worker    │
-        │                        │                       │
-        │                        │  3. Worker POST ke    │
-        │                        │     /email-webhook    │
-        │                        │──────────────────────>│
-        │                        │                       │
-        │                        │                       │ 4. Bot:
-        │                        │                       │    - Log email
-        │                        │                       │    - Kirim notif
-        │                        │                       │      Telegram
-        │                        │                       │
-        │                        │  5. Response dengan   │
-        │                        │     auto-reply config │
-        │                        │<──────────────────────│
-        │                        │                       │
-        │  6. Auto-reply email   │                       │
-        │<───────────────────────│                       │
-        │                        │                       │
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│   Pengirim   │     │  Cloudflare  │     │   Supabase   │     │   Telegram   │
+│    Email     │     │   Worker     │     │Edge Function │     │     Bot      │
+└──────┬───────┘     └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
+       │                    │                    │                    │
+       │ 1. Kirim email     │                    │                    │
+       │ ke support@domain  │                    │                    │
+       │───────────────────>│                    │                    │
+       │                    │                    │                    │
+       │                    │ 2. POST ke webhook │                    │
+       │                    │───────────────────>│                    │
+       │                    │                    │                    │
+       │                    │                    │ 3. Simpan log      │
+       │                    │                    │    + kirim notif   │
+       │                    │                    │───────────────────>│
+       │                    │                    │                    │
+       │                    │                    │                    │ 4. User dapat
+       │                    │                    │                    │    notifikasi
+       │                    │                    │                    │
+       │                    │ 5. Return auto-    │                    │
+       │                    │    reply config    │                    │
+       │                    │<───────────────────│                    │
+       │                    │                    │                    │
+       │ 6. Auto-reply      │                    │                    │
+       │<───────────────────│                    │                    │
+       │                    │                    │                    │
 ```
 
 ---
 
-## Checklist Setup
+## Checklist
 
-- [ ] Domain sudah aktif di Cloudflare
-- [ ] Worker sudah dibuat dan di-deploy
-- [ ] Environment variable `EMAIL_WEBHOOK_URL` sudah di-set
-- [ ] Email Routing sudah aktif
+- [ ] Domain aktif di Cloudflare
+- [ ] Worker `email-forwarder` sudah deploy
+- [ ] Email Routing aktif
 - [ ] Routing rule ke Worker sudah dibuat
-- [ ] Bot running di Pterodactyl
-- [ ] Bot accessible dari internet
-- [ ] Email account terdaftar di database
-- [ ] User sudah approved
+- [ ] Email terdaftar di database (`email_accounts`)
+- [ ] User status `approved`
+- [ ] Secret `BOT_TOKEN` sudah diset
 
 ---
 
-## Catatan Penting
+## Notes
 
-1. **HTTPS Recommended**: Gunakan HTTPS untuk webhook URL (bisa pakai Cloudflare Tunnel)
-2. **Rate Limiting**: Cloudflare Email Routing ada limit 100 emails/day di plan Free
-3. **Size Limit**: Email max 25MB
-4. **Monitoring**: Cek Worker analytics untuk monitor penggunaan
+- **Gratis**: Cloudflare Email Routing limit 100 emails/day di plan Free
+- **Pterodactyl**: Tidak perlu diakses dari internet sama sekali! Cukup untuk jalankan bot Telegram (command handler)
+- **Supabase Edge Function**: Ini yang handle webhook, sudah online otomatis
