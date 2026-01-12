@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { RefreshCw, Mail, Power } from "lucide-react";
+import { RefreshCw, Mail, Power, Cloud, Copy } from "lucide-react";
 import type { Database } from "@/integrations/supabase/types";
 
 type EmailAccount = Database["public"]["Tables"]["email_accounts"]["Row"];
@@ -82,6 +82,13 @@ export default function DashboardEmails() {
     }
   };
 
+  const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-webhook`;
+
+  const copyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    toast.success("Webhook URL copied to clipboard!");
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -89,7 +96,7 @@ export default function DashboardEmails() {
           <div>
             <h1 className="text-3xl font-bold">Email Accounts</h1>
             <p className="text-muted-foreground">
-              Manage connected Outlook email accounts
+              Manage email accounts dari Cloudflare Email Forwarder
             </p>
           </div>
           <Button onClick={fetchAccounts} variant="outline" disabled={loading}>
@@ -98,6 +105,60 @@ export default function DashboardEmails() {
           </Button>
         </div>
 
+        {/* Cloudflare Webhook Info */}
+        <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+              <Cloud className="h-5 w-5" />
+              Cloudflare Email Worker Setup
+            </CardTitle>
+            <CardDescription>
+              Forward email dari Cloudflare ke webhook ini untuk auto-reply
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Webhook URL:</label>
+              <div className="mt-1 flex gap-2">
+                <code className="flex-1 rounded bg-muted px-3 py-2 text-sm break-all">
+                  {webhookUrl}
+                </code>
+                <Button size="sm" variant="outline" onClick={copyWebhookUrl}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-md bg-muted p-4">
+              <p className="text-sm font-medium mb-2">Contoh Cloudflare Worker:</p>
+              <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
+{`export default {
+  async email(message, env, ctx) {
+    const emailData = {
+      from: message.from,
+      to: message.to,
+      subject: message.headers.get("subject"),
+      // Add more fields as needed
+    };
+    
+    const response = await fetch("${webhookUrl}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(emailData),
+    });
+    
+    const result = await response.json();
+    
+    if (result.autoReply?.enabled) {
+      // Send auto-reply using Cloudflare MailChannels
+      // or forward to another service
+    }
+  }
+}`}
+              </pre>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -105,7 +166,7 @@ export default function DashboardEmails() {
               Connected Accounts
             </CardTitle>
             <CardDescription>
-              Email accounts connected for auto-reply functionality
+              Email accounts yang akan menerima auto-reply
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -116,7 +177,6 @@ export default function DashboardEmails() {
                     <TableHead>Email</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Auto-Reply</TableHead>
-                    <TableHead>Token Expires</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -124,18 +184,18 @@ export default function DashboardEmails() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={5} className="text-center py-8">
                         Loading accounts...
                       </TableCell>
                     </TableRow>
                   ) : accounts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={5} className="text-center py-8">
                         <div className="flex flex-col items-center gap-2">
                           <Mail className="h-8 w-8 text-muted-foreground" />
                           <p>No email accounts connected</p>
                           <p className="text-sm text-muted-foreground">
-                            Users can connect their Outlook accounts via the Telegram bot
+                            Users dapat connect email via Telegram bot
                           </p>
                         </div>
                       </TableCell>
@@ -163,11 +223,6 @@ export default function DashboardEmails() {
                               {account.auto_reply_enabled ? "On" : "Off"}
                             </span>
                           </div>
-                        </TableCell>
-                        <TableCell>
-                          {account.token_expires_at
-                            ? new Date(account.token_expires_at).toLocaleString()
-                            : "-"}
                         </TableCell>
                         <TableCell>
                           {new Date(account.created_at).toLocaleDateString()}
