@@ -6,21 +6,36 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Mail, Lock, Loader2 } from "lucide-react";
+import { Mail, Lock, Loader2, UserPlus } from "lucide-react";
 
-export default function Login() {
+export default function Register() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      toast.error("Password tidak sama!");
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error("Password minimal 6 karakter!");
+      return;
+    }
+
     setIsLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
     });
 
     if (error) {
@@ -29,8 +44,8 @@ export default function Login() {
       return;
     }
 
-    toast.success("Login berhasil!");
-    navigate("/dashboard");
+    toast.success("Registrasi berhasil! Silakan login.");
+    navigate("/login");
   };
 
   return (
@@ -38,13 +53,13 @@ export default function Login() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 mb-4">
-            <Mail className="h-7 w-7 text-primary" />
+            <UserPlus className="h-7 w-7 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Masuk</CardTitle>
-          <CardDescription>Masuk ke akun Email Notifier kamu</CardDescription>
+          <CardTitle className="text-2xl">Daftar Akun</CardTitle>
+          <CardDescription>Buat akun Email Notifier baru</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">
@@ -72,18 +87,35 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
                   required
+                  minLength={6}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Konfirmasi Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="pl-10"
+                  required
+                  minLength={6}
                 />
               </div>
             </div>
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Masuk
+              Daftar
             </Button>
           </form>
           <div className="mt-4 text-center text-sm text-muted-foreground">
-            Belum punya akun?{" "}
-            <Link to="/register" className="text-primary hover:underline">
-              Daftar di sini
+            Sudah punya akun?{" "}
+            <Link to="/login" className="text-primary hover:underline">
+              Masuk di sini
             </Link>
           </div>
         </CardContent>
