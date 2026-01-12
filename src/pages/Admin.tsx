@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { ArrowLeft, Users, Mail, Inbox, Shield, UserCheck, UserX, Key, Loader2 } from "lucide-react";
+import { ArrowLeft, Users, Inbox, Shield, Key, Loader2, UserPlus } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
 type Profile = Tables<"profiles">;
@@ -24,9 +24,19 @@ export default function Admin() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [emails, setEmails] = useState<EmailLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Set password dialog
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [isSettingPassword, setIsSettingPassword] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  
+  // Create user dialog
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   useEffect(() => {
     if (!authLoading) {
@@ -72,8 +82,7 @@ export default function Admin() {
     
     setIsSettingPassword(true);
     
-    // Call edge function to set password
-    const { data, error } = await supabase.functions.invoke("admin-set-password", {
+    const { error } = await supabase.functions.invoke("admin-set-password", {
       body: { user_id: selectedUser.user_id, new_password: newPassword },
     });
 
@@ -83,9 +92,37 @@ export default function Admin() {
       toast.success("Password berhasil diatur");
       setNewPassword("");
       setSelectedUser(null);
+      setPasswordDialogOpen(false);
     }
     
     setIsSettingPassword(false);
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUserEmail || !newUserPassword) return;
+    
+    setIsCreatingUser(true);
+    
+    const { error } = await supabase.functions.invoke("admin-create-user", {
+      body: { 
+        email: newUserEmail.trim(), 
+        password: newUserPassword,
+        display_name: newUserName.trim() || null,
+      },
+    });
+
+    if (error) {
+      toast.error(error.message || "Gagal membuat user");
+    } else {
+      toast.success("User berhasil dibuat");
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserName("");
+      setCreateDialogOpen(false);
+      fetchData(); // Refresh data
+    }
+    
+    setIsCreatingUser(false);
   };
 
   if (authLoading || !isAdmin) {
@@ -130,9 +167,70 @@ export default function Admin() {
 
           <TabsContent value="users">
             <Card>
-              <CardHeader>
-                <CardTitle>Daftar Pengguna</CardTitle>
-                <CardDescription>Kelola pengguna dan atur password</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Daftar Pengguna</CardTitle>
+                  <CardDescription>Kelola pengguna dan atur password</CardDescription>
+                </div>
+                <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Buat User
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Buat User Baru</DialogTitle>
+                      <DialogDescription>
+                        User akan langsung bisa login setelah dibuat
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="newUserName">Nama (opsional)</Label>
+                        <Input
+                          id="newUserName"
+                          type="text"
+                          placeholder="Nama pengguna"
+                          value={newUserName}
+                          onChange={(e) => setNewUserName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="newUserEmail">Email *</Label>
+                        <Input
+                          id="newUserEmail"
+                          type="email"
+                          placeholder="user@example.com"
+                          value={newUserEmail}
+                          onChange={(e) => setNewUserEmail(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="newUserPassword">Password *</Label>
+                        <Input
+                          id="newUserPassword"
+                          type="password"
+                          placeholder="Minimal 6 karakter"
+                          value={newUserPassword}
+                          onChange={(e) => setNewUserPassword(e.target.value)}
+                          minLength={6}
+                          required
+                        />
+                      </div>
+                      <Button 
+                        onClick={handleCreateUser} 
+                        className="w-full"
+                        disabled={isCreatingUser || !newUserEmail || newUserPassword.length < 6}
+                      >
+                        {isCreatingUser && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Buat User
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </CardHeader>
               <CardContent>
                 {isLoading ? (
@@ -158,12 +256,18 @@ export default function Admin() {
                             Joined: {new Date(profile.created_at).toLocaleDateString("id-ID")}
                           </p>
                         </div>
-                        <Dialog>
+                        <Dialog open={passwordDialogOpen && selectedUser?.id === profile.id} onOpenChange={(open) => {
+                          setPasswordDialogOpen(open);
+                          if (!open) setSelectedUser(null);
+                        }}>
                           <DialogTrigger asChild>
                             <Button 
                               variant="outline" 
                               size="sm"
-                              onClick={() => setSelectedUser(profile)}
+                              onClick={() => {
+                                setSelectedUser(profile);
+                                setPasswordDialogOpen(true);
+                              }}
                             >
                               <Key className="h-4 w-4 mr-2" />
                               Set Password

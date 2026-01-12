@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,12 +80,6 @@ export default function Login() {
               Masuk
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
-            Belum punya akun?{" "}
-            <Link to="/register" className="text-primary hover:underline">
-              Daftar
-            </Link>
-          </div>
         </CardContent>
       </Card>
     </div>
