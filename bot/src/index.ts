@@ -213,6 +213,165 @@ bot.command("inbox", async (ctx) => {
   await ctx.reply(message, { parse_mode: "MarkdownV2" });
 });
 
+bot.command("setemail", async (ctx) => {
+  if (!(await isUserApproved(ctx.from!.id))) {
+    return ctx.reply("❌ Kamu belum disetujui. Gunakan /verify untuk verifikasi.");
+  }
+
+  const args = ctx.message!.text!.split(" ");
+  if (args.length < 2) {
+    return ctx.reply(
+      "📧 *Set Email untuk Auto Reply*\n\n" +
+      "Usage: `/setemail email@domain\\.com`\n\n" +
+      "Contoh: `/setemail support@mysite\\.com`",
+      { parse_mode: "MarkdownV2" }
+    );
+  }
+
+  const email = args[1].toLowerCase().trim();
+  
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return ctx.reply("❌ Format email tidak valid.");
+  }
+
+  // Get user
+  const { data: user } = await supabase
+    .from("telegram_users")
+    .select("id")
+    .eq("telegram_id", ctx.from!.id)
+    .single();
+
+  if (!user) {
+    return ctx.reply("❌ User tidak ditemukan.");
+  }
+
+  // Check if email already exists
+  const { data: existingEmail } = await supabase
+    .from("email_accounts")
+    .select("id")
+    .eq("email", email)
+    .single();
+
+  if (existingEmail) {
+    return ctx.reply("❌ Email ini sudah digunakan.");
+  }
+
+  // Deactivate old email accounts for this user
+  await supabase
+    .from("email_accounts")
+    .update({ is_active: false })
+    .eq("telegram_user_id", user.id);
+
+  // Create new email account
+  const { error } = await supabase
+    .from("email_accounts")
+    .insert({
+      telegram_user_id: user.id,
+      email: email,
+      is_active: true,
+      auto_reply_enabled: true,
+      auto_reply_message: "Terima kasih atas email Anda. Saya akan membalas secepatnya.",
+    });
+
+  if (error) {
+    console.error("Error creating email account:", error);
+    return ctx.reply(`❌ Gagal menyimpan email: ${error.message}`);
+  }
+
+  await ctx.reply(
+    `✅ *Email berhasil didaftarkan\\!*\n\n` +
+    `📧 Email: \`${escapeMarkdown(email)}\`\n` +
+    `🔄 Auto\\-reply: Aktif\n\n` +
+    `Sekarang setup Email Routing di Cloudflare untuk forward email ke bot\\.`,
+    { parse_mode: "MarkdownV2" }
+  );
+});
+
+bot.command("setreply", async (ctx) => {
+  if (!(await isUserApproved(ctx.from!.id))) {
+    return ctx.reply("❌ Kamu belum disetujui. Gunakan /verify untuk verifikasi.");
+  }
+
+  const message = ctx.message!.text!.replace("/setreply ", "").trim();
+  if (!message || message === "/setreply") {
+    return ctx.reply(
+      "📝 *Set Pesan Auto Reply*\n\n" +
+      "Usage: `/setreply Pesan auto reply kamu`\n\n" +
+      "Contoh: `/setreply Terima kasih, saya sedang sibuk dan akan membalas nanti\\.`",
+      { parse_mode: "MarkdownV2" }
+    );
+  }
+
+  // Get user
+  const { data: user } = await supabase
+    .from("telegram_users")
+    .select("id")
+    .eq("telegram_id", ctx.from!.id)
+    .single();
+
+  if (!user) {
+    return ctx.reply("❌ User tidak ditemukan.");
+  }
+
+  // Update auto reply message
+  const { error } = await supabase
+    .from("email_accounts")
+    .update({ auto_reply_message: message })
+    .eq("telegram_user_id", user.id)
+    .eq("is_active", true);
+
+  if (error) {
+    return ctx.reply(`❌ Gagal update: ${error.message}`);
+  }
+
+  await ctx.reply(
+    `✅ *Pesan auto\\-reply berhasil diupdate\\!*\n\n` +
+    `📝 Pesan baru:\n"${escapeMarkdown(message)}"`,
+    { parse_mode: "MarkdownV2" }
+  );
+});
+
+bot.command("myemail", async (ctx) => {
+  if (!(await isUserApproved(ctx.from!.id))) {
+    return ctx.reply("❌ Kamu belum disetujui. Gunakan /verify untuk verifikasi.");
+  }
+
+  // Get user
+  const { data: user } = await supabase
+    .from("telegram_users")
+    .select("id")
+    .eq("telegram_id", ctx.from!.id)
+    .single();
+
+  if (!user) {
+    return ctx.reply("❌ User tidak ditemukan.");
+  }
+
+  // Get email account
+  const { data: emailAccount } = await supabase
+    .from("email_accounts")
+    .select("*")
+    .eq("telegram_user_id", user.id)
+    .eq("is_active", true)
+    .single();
+
+  if (!emailAccount) {
+    return ctx.reply("📭 Kamu belum memiliki email yang terdaftar.\n\nGunakan /setemail untuk mendaftarkan email.");
+  }
+
+  const autoReplyStatus = emailAccount.auto_reply_enabled ? "✅ Aktif" : "❌ Nonaktif";
+
+  await ctx.reply(
+    `📧 *Email Kamu*\n\n` +
+    `Email: \`${escapeMarkdown(emailAccount.email)}\`\n` +
+    `Auto\\-reply: ${autoReplyStatus}\n` +
+    `Pesan: "${escapeMarkdown(emailAccount.auto_reply_message || "")}"`,
+    { parse_mode: "MarkdownV2" }
+  );
+});
+
 bot.command("help", async (ctx) => {
   const isOwnerUser = isOwner(ctx.from!.id);
 
@@ -221,6 +380,9 @@ bot.command("help", async (ctx) => {
     `/start \\- Mulai bot\n` +
     `/verify \\- Verifikasi akun\n` +
     `/status \\- Cek status akun\n` +
+    `/setemail \\- Daftarkan email\n` +
+    `/setreply \\- Set pesan auto\\-reply\n` +
+    `/myemail \\- Lihat email terdaftar\n` +
     `/inbox \\- Lihat email terakhir\n` +
     `/help \\- Tampilkan bantuan ini`;
 
