@@ -164,15 +164,22 @@ export default function Dashboard() {
                 {emails.map((email) => (
                   <div
                     key={email.id}
-                    className="flex items-start justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                    className="p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors space-y-2"
                   >
-                    <div className="space-y-1">
-                      <p className="font-medium">{email.subject || "No Subject"}</p>
-                      <p className="text-sm text-muted-foreground">{email.from_email}</p>
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <p className="font-medium">{email.subject || "No Subject"}</p>
+                        <p className="text-sm text-muted-foreground">{email.from_email}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(email.replied_at).toLocaleString("id-ID")}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(email.replied_at).toLocaleString("id-ID")}
-                    </p>
+                    {(email as any).body_text && (
+                      <div className="mt-2 p-3 bg-muted/50 rounded text-sm whitespace-pre-wrap max-h-40 overflow-y-auto">
+                        {(email as any).body_text}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
