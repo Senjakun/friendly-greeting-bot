@@ -1,0 +1,113 @@
+{
+	"id": "4f2c34cd-ea16-424c-b479-0b98c4130d5c",
+	"deletedDateTime": null,
+	"appId": "843aa367-f7d0-4f20-8e83-0c164f11980c",
+	"applicationTemplateId": null,
+	"disabledByMicrosoftStatus": null,
+	"createdDateTime": "2026-01-13T07:33:57Z",
+	"displayName": "Anekjaja",
+	"description": null,
+	"groupMembershipClaims": null,
+	"identifierUris": [],
+	"isDeviceOnlyAuthSupported": null,
+	"isFallbackPublicClient": null,
+	"nativeAuthenticationApisEnabled": null,
+	"notes": null,
+	"publisherDomain": "hubertjaroslawklarczykoutlo.onmicrosoft.com",
+	"serviceManagementReference": null,
+	"signInAudience": "AzureADandPersonalMicrosoftAccount",
+	"tags": [],
+	"tokenEncryptionKeyId": null,
+	"samlMetadataUrl": null,
+	"defaultRedirectUri": null,
+	"certification": null,
+	"optionalClaims": null,
+	"requestSignatureVerification": null,
+	"addIns": [],
+	"api": {
+		"acceptMappedClaims": null,
+		"knownClientApplications": [],
+		"requestedAccessTokenVersion": 2,
+		"oauth2PermissionScopes": [],
+		"preAuthorizedApplications": []
+	},
+	"appRoles": [],
+	"info": {
+		"logoUrl": null,
+		"marketingUrl": null,
+		"privacyStatementUrl": null,
+		"supportUrl": null,
+		"termsOfServiceUrl": null
+	},
+	"keyCredentials": [],
+	"parentalControlSettings": {
+		"countriesBlockedForMinors": [],
+		"legalAgeGroupRule": "Allow"
+	},
+	"passwordCredentials": [
+		{
+			"customKeyIdentifier": null,
+			"displayName": "Jaja",
+			"endDateTime": "2028-01-13T09:58:15.492Z",
+			"hint": "_x1",
+			"keyId": "178a5372-eb20-4330-b712-4e4574dc06ea",
+			"secretText": null,
+			"startDateTime": "2026-01-13T09:58:15.492Z"
+		},
+		{
+			"customKeyIdentifier": null,
+			"displayName": "Hyrew",
+			"endDateTime": "2028-01-13T08:01:41.144Z",
+			"hint": "ddm",
+			"keyId": "c1b9175d-482b-4d0d-ab78-ee106b5be34a",
+			"secretText": null,
+			"startDateTime": "2026-01-13T08:01:41.144Z"
+		}
+	],
+	"publicClient": {
+		"redirectUris": [
+			"https://login.microsoftonline.com/common/oauth2/nativeclient"
+		]
+	},
+	"requiredResourceAccess": [
+		{
+			"resourceAppId": "00000003-0000-0000-c000-000000000000",
+			"resourceAccess": [
+				{
+					"id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d",
+					"type": "Scope"
+				},
+				{
+					"id": "810c84a8-4a9e-49e6-bf7d-12d183f40d01",
+					"type": "Role"
+				}
+			]
+		}
+	],
+	"verifiedPublisher": {
+		"displayName": null,
+		"verifiedPublisherId": null,
+		"addedDateTime": null
+	},
+	"web": {
+		"homePageUrl": null,
+		"logoutUrl": null,
+		"redirectUris": [],
+		"implicitGrantSettings": {
+			"enableAccessTokenIssuance": false,
+			"enableIdTokenIssuance": false
+		},
+		"redirectUriSettings": []
+	},
+	"servicePrincipalLockConfiguration": {
+		"isEnabled": true,
+		"allProperties": true,
+		"credentialsWithUsageVerify": true,
+		"credentialsWithUsageSign": true,
+		"identifierUris": false,
+		"tokenEncryptionKeyId": true
+	},
+	"spa": {
+		"redirectUris": []
+	}
+}
