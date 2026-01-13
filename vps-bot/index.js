@@ -437,7 +437,11 @@ if (!config || !config.bot_token || !config.owner_id) {
       lastCheckedTime = new Date().toISOString();
       
     } catch (error) {
-      console.error('❌ Error checking emails:', error.message);
+      console.error('❌ Error checking emails:', error.message || error);
+      if (error.statusCode === 401) {
+        console.error('⚠️ Token expired or invalid. Please run /login again.');
+        stopPolling();
+      }
     }
   }
 
