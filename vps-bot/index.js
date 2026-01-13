@@ -166,28 +166,48 @@ if (!config || !config.bot_token || !config.owner_id) {
     saveData(data);
   }
 
-  // ===== MICROSOFT AUTH =====
+  // ===== MICROSOFT AUTH (Device Code Flow for Personal Accounts) =====
   let accessToken = null;
+  let refreshToken = null;
   let tokenExpiry = 0;
 
-  async function getAccessToken() {
-    const { ms_client_id, ms_client_secret, ms_tenant_id } = data.settings;
+  // Load saved tokens
+  function loadTokens() {
+    if (data.tokens) {
+      accessToken = data.tokens.access_token || null;
+      refreshToken = data.tokens.refresh_token || null;
+      tokenExpiry = data.tokens.expiry || 0;
+    }
+  }
+
+  function saveTokens(tokens) {
+    data.tokens = {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expiry: Date.now() + (tokens.expires_in * 1000) - 60000
+    };
+    saveData(data);
+    accessToken = tokens.access_token;
+    refreshToken = tokens.refresh_token;
+    tokenExpiry = data.tokens.expiry;
+  }
+
+  loadTokens();
+
+  async function refreshAccessToken() {
+    const { ms_client_id } = data.settings;
     
-    if (!ms_client_id || !ms_client_secret || !ms_tenant_id) {
-      throw new Error('Microsoft credentials not configured. Use /setclient to configure.');
+    if (!refreshToken) {
+      throw new Error('No refresh token. Please login again with /login');
     }
 
-    if (accessToken && Date.now() < tokenExpiry) {
-      return accessToken;
-    }
-
-    const tokenUrl = `https://login.microsoftonline.com/${ms_tenant_id}/oauth2/v2.0/token`;
+    const tokenUrl = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
     
     const params = new URLSearchParams({
       client_id: ms_client_id,
-      client_secret: ms_client_secret,
-      scope: 'https://graph.microsoft.com/.default',
-      grant_type: 'client_credentials'
+      refresh_token: refreshToken,
+      scope: 'offline_access Mail.Read Mail.ReadBasic User.Read',
+      grant_type: 'refresh_token'
     });
 
     const response = await fetch(tokenUrl, {
@@ -199,13 +219,110 @@ if (!config || !config.bot_token || !config.owner_id) {
     const result = await response.json();
     
     if (result.error) {
-      throw new Error(`Auth error: ${result.error_description}`);
+      // Token expired, need to re-login
+      accessToken = null;
+      refreshToken = null;
+      data.tokens = null;
+      saveData(data);
+      throw new Error('Session expired. Please login again with /login');
     }
 
-    accessToken = result.access_token;
-    tokenExpiry = Date.now() + (result.expires_in * 1000) - 60000;
+    saveTokens(result);
+    return result.access_token;
+  }
+
+  async function getAccessToken() {
+    const { ms_client_id } = data.settings;
     
-    return accessToken;
+    if (!ms_client_id) {
+      throw new Error('Client ID not configured. Use /setclient to configure.');
+    }
+
+    if (!accessToken && !refreshToken) {
+      throw new Error('Not logged in. Use /login to authenticate with your Outlook account.');
+    }
+
+    if (accessToken && Date.now() < tokenExpiry) {
+      return accessToken;
+    }
+
+    // Try to refresh
+    return await refreshAccessToken();
+  }
+
+  // Device Code Flow - Start Login
+  async function startDeviceCodeFlow(chatId) {
+    const { ms_client_id } = data.settings;
+    
+    if (!ms_client_id) {
+      throw new Error('Client ID not configured. Use /setclient first.');
+    }
+
+    const deviceCodeUrl = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode';
+    
+    const params = new URLSearchParams({
+      client_id: ms_client_id,
+      scope: 'offline_access Mail.Read Mail.ReadBasic User.Read'
+    });
+
+    const response = await fetch(deviceCodeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+
+    const result = await response.json();
+    
+    if (result.error) {
+      throw new Error(`Device code error: ${result.error_description}`);
+    }
+
+    return result;
+  }
+
+  // Poll for token after user completes login
+  async function pollForToken(deviceCode, interval, expiresIn) {
+    const { ms_client_id } = data.settings;
+    const tokenUrl = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
+    
+    const startTime = Date.now();
+    const timeout = expiresIn * 1000;
+
+    while (Date.now() - startTime < timeout) {
+      await new Promise(resolve => setTimeout(resolve, interval * 1000));
+
+      const params = new URLSearchParams({
+        client_id: ms_client_id,
+        device_code: deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+      });
+
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params
+      });
+
+      const result = await response.json();
+
+      if (result.access_token) {
+        saveTokens(result);
+        return result;
+      }
+
+      if (result.error === 'authorization_pending') {
+        continue;
+      }
+
+      if (result.error === 'slow_down') {
+        interval += 5;
+        continue;
+      }
+
+      throw new Error(result.error_description || result.error);
+    }
+
+    throw new Error('Login timeout. Please try again.');
   }
 
   // ===== GRAPH CLIENT =====
@@ -290,8 +407,9 @@ if (!config || !config.bot_token || !config.owner_id) {
     try {
       const client = getGraphClient();
       
+      // Use /me endpoint for personal accounts
       const response = await client
-        .api(`/users/${ms_user_email}/mailFolders/inbox/messages`)
+        .api('/me/mailFolders/inbox/messages')
         .filter(`isRead eq false and receivedDateTime ge ${lastCheckedTime}`)
         .orderby('receivedDateTime desc')
         .top(10)
@@ -324,17 +442,12 @@ if (!config || !config.bot_token || !config.owner_id) {
   }
 
   async function getInboxEmails(count = 10) {
-    const { ms_user_email } = data.settings;
-    
-    if (!ms_user_email) {
-      throw new Error('Email not configured');
-    }
-
     try {
       const client = getGraphClient();
       
+      // Use /me endpoint for personal accounts
       const response = await client
-        .api(`/users/${ms_user_email}/mailFolders/inbox/messages`)
+        .api('/me/mailFolders/inbox/messages')
         .orderby('receivedDateTime desc')
         .top(count)
         .select('id,subject,bodyPreview,from,receivedDateTime,isRead')
@@ -381,18 +494,21 @@ if (!config || !config.bot_token || !config.owner_id) {
     if (isOwner(userId)) {
       bot.sendMessage(msg.chat.id, 
         `👋 Halo Owner *${name}*!\n\n` +
-        `🤖 *OTP Bot Ready*\n\n` +
+        `🤖 *OTP Bot Ready (Personal Account)*\n\n` +
         `*📋 Owner Commands:*\n` +
+        `/setclient - Set Client ID\n` +
+        `/login - Login ke Outlook.com\n` +
+        `/logout - Logout\n` +
+        `/startbot - Start monitoring\n` +
+        `/stopbot - Stop monitoring\n` +
+        `/inbox - Lihat inbox email\n` +
+        `/check - Cek email baru\n` +
+        `/settings - Lihat settings\n\n` +
+        `*👥 User Management:*\n` +
         `/approve <id/username> - Approve user\n` +
         `/revoke <id/username> - Revoke akses\n` +
         `/users - Lihat semua user\n` +
-        `/broadcast <pesan> - Kirim ke semua\n` +
-        `/setclient - Set Microsoft credentials\n` +
-        `/inbox - Lihat inbox email\n` +
-        `/check - Cek email baru\n` +
-        `/settings - Lihat settings\n` +
-        `/startbot - Start monitoring\n` +
-        `/stopbot - Stop monitoring\n\n` +
+        `/broadcast <pesan> - Kirim ke semua\n\n` +
         `*📱 General Commands:*\n` +
         `/status - Bot status\n` +
         `/myid - Get Telegram ID`,
@@ -554,7 +670,7 @@ if (!config || !config.bot_token || !config.owner_id) {
     );
   });
 
-  // /setclient - Interactive setup for Microsoft credentials
+  // /setclient - Interactive setup for Microsoft credentials (simplified for Device Code Flow)
   let setupState = {};
 
   bot.onText(/\/setclient/, (msg) => {
@@ -565,8 +681,8 @@ if (!config || !config.bot_token || !config.owner_id) {
     setupState[msg.chat.id] = { step: 'client_id' };
     
     bot.sendMessage(msg.chat.id,
-      `⚙️ *Setup Microsoft Graph API*\n\n` +
-      `Langkah 1/5: Masukkan *Client ID*\n\n` +
+      `⚙️ *Setup Microsoft Graph API (Personal Account)*\n\n` +
+      `Langkah 1/2: Masukkan *Client ID* dari Azure App\n\n` +
       `(Ketik /cancel untuk batal)`,
       { parse_mode: 'Markdown' }
     );
@@ -590,42 +706,10 @@ if (!config || !config.bot_token || !config.owner_id) {
     switch (state.step) {
       case 'client_id':
         data.settings.ms_client_id = value;
-        state.step = 'client_secret';
-        bot.sendMessage(msg.chat.id,
-          `✅ Client ID saved!\n\n` +
-          `Langkah 2/5: Masukkan *Client Secret*`,
-          { parse_mode: 'Markdown' }
-        );
-        break;
-        
-      case 'client_secret':
-        data.settings.ms_client_secret = value;
-        state.step = 'tenant_id';
-        // Delete secret message
-        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
-        bot.sendMessage(msg.chat.id,
-          `✅ Client Secret saved! (pesan dihapus)\n\n` +
-          `Langkah 3/5: Masukkan *Tenant ID*`,
-          { parse_mode: 'Markdown' }
-        );
-        break;
-        
-      case 'tenant_id':
-        data.settings.ms_tenant_id = value;
-        state.step = 'email';
-        bot.sendMessage(msg.chat.id,
-          `✅ Tenant ID saved!\n\n` +
-          `Langkah 4/5: Masukkan *Email* yang akan dimonitor`,
-          { parse_mode: 'Markdown' }
-        );
-        break;
-        
-      case 'email':
-        data.settings.ms_user_email = value;
         state.step = 'interval';
         bot.sendMessage(msg.chat.id,
-          `✅ Email saved!\n\n` +
-          `Langkah 5/5: Masukkan *Interval* polling (detik, min 10)`,
+          `✅ Client ID saved!\n\n` +
+          `Langkah 2/2: Masukkan *Interval* polling (detik, min 10)`,
           { parse_mode: 'Markdown' }
         );
         break;
@@ -638,19 +722,106 @@ if (!config || !config.bot_token || !config.owner_id) {
         }
         data.settings.poll_interval = interval;
         saveData(data);
-        accessToken = null;
         
         delete setupState[msg.chat.id];
         
         bot.sendMessage(msg.chat.id,
           `✅ *Setup Complete!*\n\n` +
-          `📧 Email: ${data.settings.ms_user_email}\n` +
           `⏱️ Interval: ${interval}s\n\n` +
-          `Gunakan /startbot untuk mulai monitoring.`,
+          `Sekarang gunakan /login untuk login ke akun Outlook.com kamu.`,
           { parse_mode: 'Markdown' }
         );
         break;
     }
+  });
+
+  // /login - Device Code Flow login
+  let loginState = {};
+
+  bot.onText(/\/login/, async (msg) => {
+    if (!isOwner(msg.from.id)) {
+      return bot.sendMessage(msg.chat.id, '⛔ Hanya owner yang bisa menggunakan command ini.');
+    }
+    
+    if (!data.settings.ms_client_id) {
+      return bot.sendMessage(msg.chat.id, '⚠️ Client ID belum dikonfigurasi. Gunakan /setclient dulu.');
+    }
+    
+    // Check if already logged in
+    if (accessToken && refreshToken) {
+      return bot.sendMessage(msg.chat.id, 
+        '✅ Sudah login. Gunakan /logout untuk logout dulu jika ingin login ulang.'
+      );
+    }
+    
+    try {
+      const statusMsg = await bot.sendMessage(msg.chat.id, '⏳ Memulai proses login...');
+      
+      const deviceCode = await startDeviceCodeFlow(msg.chat.id);
+      
+      await bot.editMessageText(
+        `🔐 *Login ke Outlook.com*\n\n` +
+        `1. Buka: ${deviceCode.verification_uri}\n\n` +
+        `2. Masukkan kode:\n\`${deviceCode.user_code}\`\n\n` +
+        `⏳ Menunggu kamu login... (expires in ${Math.floor(deviceCode.expires_in / 60)} menit)`,
+        { 
+          chat_id: msg.chat.id, 
+          message_id: statusMsg.message_id,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        }
+      );
+      
+      // Poll for token
+      loginState[msg.chat.id] = true;
+      
+      const tokens = await pollForToken(
+        deviceCode.device_code, 
+        deviceCode.interval, 
+        deviceCode.expires_in
+      );
+      
+      delete loginState[msg.chat.id];
+      
+      // Get user email
+      const client = getGraphClient();
+      const me = await client.api('/me').select('mail,userPrincipalName').get();
+      data.settings.ms_user_email = me.mail || me.userPrincipalName;
+      saveData(data);
+      
+      await bot.editMessageText(
+        `✅ *Login Berhasil!*\n\n` +
+        `📧 Email: ${data.settings.ms_user_email}\n\n` +
+        `Gunakan /startbot untuk mulai monitoring email.`,
+        { 
+          chat_id: msg.chat.id, 
+          message_id: statusMsg.message_id,
+          parse_mode: 'Markdown'
+        }
+      );
+      
+    } catch (error) {
+      delete loginState[msg.chat.id];
+      bot.sendMessage(msg.chat.id, `❌ Login gagal: ${error.message}`);
+    }
+  });
+
+  // /logout
+  bot.onText(/\/logout/, (msg) => {
+    if (!isOwner(msg.from.id)) {
+      return bot.sendMessage(msg.chat.id, '⛔ Hanya owner yang bisa menggunakan command ini.');
+    }
+    
+    accessToken = null;
+    refreshToken = null;
+    tokenExpiry = 0;
+    data.tokens = null;
+    data.settings.ms_user_email = null;
+    saveData(data);
+    
+    stopPolling();
+    
+    bot.sendMessage(msg.chat.id, '✅ Logout berhasil. Gunakan /login untuk login lagi.');
   });
 
   // /inbox - View inbox
@@ -737,12 +908,13 @@ if (!config || !config.bot_token || !config.owner_id) {
     }
     
     const s = data.settings;
+    const isLoggedIn = !!(accessToken || refreshToken);
+    
     bot.sendMessage(msg.chat.id,
       `⚙️ *Current Settings*\n\n` +
       `📧 Email: \`${s.ms_user_email || '(not set)'}\`\n` +
       `🔑 Client ID: \`${s.ms_client_id ? s.ms_client_id.substring(0, 8) + '...' : '(not set)'}\`\n` +
-      `🔐 Secret: \`${s.ms_client_secret ? '••••••••' : '(not set)'}\`\n` +
-      `🏢 Tenant: \`${s.ms_tenant_id ? s.ms_tenant_id.substring(0, 8) + '...' : '(not set)'}\`\n` +
+      `🔐 Login: ${isLoggedIn ? '✅ Logged in' : '❌ Not logged in'}\n` +
       `⏱️ Interval: ${s.poll_interval}s\n` +
       `🔄 Polling: ${pollingInterval ? '✅ Running' : '❌ Stopped'}`,
       { parse_mode: 'Markdown' }
@@ -755,11 +927,17 @@ if (!config || !config.bot_token || !config.owner_id) {
       return bot.sendMessage(msg.chat.id, '⛔ Hanya owner yang bisa menggunakan command ini.');
     }
     
-    const { ms_client_id, ms_client_secret, ms_tenant_id, ms_user_email } = data.settings;
+    const { ms_client_id } = data.settings;
     
-    if (!ms_client_id || !ms_client_secret || !ms_tenant_id || !ms_user_email) {
+    if (!ms_client_id) {
       return bot.sendMessage(msg.chat.id, 
-        '⚠️ Setup belum lengkap!\n\nGunakan /setclient untuk konfigurasi.'
+        '⚠️ Client ID belum dikonfigurasi!\n\nGunakan /setclient untuk konfigurasi.'
+      );
+    }
+    
+    if (!accessToken && !refreshToken) {
+      return bot.sendMessage(msg.chat.id, 
+        '⚠️ Belum login!\n\nGunakan /login untuk login ke akun Outlook.com kamu.'
       );
     }
     
@@ -792,14 +970,16 @@ if (!config || !config.bot_token || !config.owner_id) {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 
-  // Auto-start if configured
-  const { ms_client_id, ms_client_secret, ms_tenant_id, ms_user_email } = data.settings;
-  if (ms_client_id && ms_client_secret && ms_tenant_id && ms_user_email) {
+  // Auto-start if configured and logged in
+  const { ms_client_id } = data.settings;
+  if (ms_client_id && (accessToken || refreshToken)) {
     console.log('🔄 Auto-starting email monitoring...');
     getAccessToken()
       .then(() => startPolling())
       .catch(err => console.error('❌ Auto-start failed:', err.message));
+  } else if (!ms_client_id) {
+    console.log('⚠️ Client ID not configured. Use /setclient in Telegram.');
   } else {
-    console.log('⚠️ Microsoft credentials not configured. Use /setclient in Telegram.');
+    console.log('⚠️ Not logged in. Use /login in Telegram.');
   }
 }
