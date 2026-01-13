@@ -4,7 +4,7 @@ Bot Telegram untuk menerima notifikasi OTP dari email Outlook/Microsoft 365.
 
 ## ✨ Fitur
 
-- ✅ **Web Setup Wizard** - Konfigurasi via browser, tanpa edit file
+- ✅ **CLI Setup Wizard** - Konfigurasi via terminal, tanpa edit file
 - ✅ **1 Command Install** - Instalasi otomatis dengan satu perintah
 - ✅ **User Approval System** - Hanya user approved yang bisa akses
 - ✅ **Auto-extract OTP** - Deteksi otomatis kode OTP dari email
@@ -32,19 +32,26 @@ npm start
 
 ---
 
-## 🌐 Setup via Browser
+## 🔧 Setup via Terminal
 
-Setelah install, buka browser:
+Setelah install, bot akan menampilkan setup wizard:
 
 ```
-http://YOUR_VPS_IP:3000
+╔════════════════════════════════════════════════════════════╗
+║              🤖 OTP TELEGRAM BOT - SETUP                   ║
+╠════════════════════════════════════════════════════════════╣
+║  Selamat datang! Mari konfigurasikan bot kamu.             ║
+╚════════════════════════════════════════════════════════════╝
+
+📋 Cara mendapatkan token dan ID:
+   1. Chat @BotFather di Telegram → /newbot → catat token
+   2. Chat @userinfobot → catat ID Telegram kamu
+
+🔑 Masukkan Bot Token: _
+👤 Masukkan Owner ID: _
 ```
 
-Isi:
-1. **Bot Token** - Dari @BotFather
-2. **Owner ID** - Dari @userinfobot
-
-Klik "Setup Bot" dan selesai! 🎉
+Setelah setup, chat bot di Telegram untuk lanjutkan konfigurasi Microsoft.
 
 ---
 
@@ -122,6 +129,84 @@ Setelah selesai, ketik `/startbot` untuk mulai monitoring.
 
 ---
 
+## 🌐 Menggunakan Domain Sendiri
+
+Bot Telegram tidak memerlukan domain karena berkomunikasi langsung dengan API Telegram. Tapi jika kamu ingin domain untuk:
+
+### 1. Webhook (Opsional - untuk performa lebih baik)
+
+Ubah dari polling ke webhook:
+
+```javascript
+// Di index.js, ganti:
+const bot = new TelegramBot(bot_token, { polling: true });
+
+// Menjadi:
+const bot = new TelegramBot(bot_token);
+bot.setWebHook('https://yourdomain.com/webhook');
+```
+
+Setup domain dengan SSL:
+
+```bash
+# Install Nginx
+sudo apt install nginx certbot python3-certbot-nginx
+
+# Setup SSL
+sudo certbot --nginx -d yourdomain.com
+
+# Nginx config untuk webhook
+sudo nano /etc/nginx/sites-available/otp-bot
+```
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    location /webhook {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/otp-bot /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 2. Dashboard Web (Jika diperlukan)
+
+Jika kamu ingin menambahkan dashboard web:
+
+```bash
+# Arahkan domain ke IP VPS
+# Di DNS provider (Cloudflare, Namecheap, dll):
+# A Record: @ → IP_VPS_KAMU
+# A Record: www → IP_VPS_KAMU
+
+# Setup SSL
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+```
+
+### 3. DNS Settings
+
+Di domain provider kamu:
+
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| A | @ | IP_VPS_KAMU | Auto |
+| A | www | IP_VPS_KAMU | Auto |
+
+---
+
 ## 🔄 PM2 Commands
 
 ```bash
@@ -140,9 +225,22 @@ pm2 delete otp-bot  # Hapus dari PM2
 otp-bot/
 ├── index.js           # Main bot code
 ├── package.json       # Dependencies
-├── ecosystem.config.cjs # PM2 config
 ├── config.json        # Bot token & owner ID (auto-generated)
 └── data.json          # Settings & users (auto-generated)
+```
+
+---
+
+## 🔄 Reset & Setup Ulang
+
+```bash
+# Reset konfigurasi bot
+rm ~/otp-bot/config.json
+pm2 restart otp-bot
+
+# Reset semua data
+rm ~/otp-bot/config.json ~/otp-bot/data.json
+pm2 restart otp-bot
 ```
 
 ---
@@ -152,19 +250,20 @@ otp-bot/
 - Client Secret otomatis dihapus dari chat setelah dikirim
 - config.json berisi credential, jangan share!
 - Hanya owner yang bisa approve/revoke user
-- Setup wizard otomatis tutup setelah konfigurasi selesai
+- Semua data tersimpan lokal di VPS
 
 ---
 
 ## ❓ Troubleshooting
 
-**Port 3000 tidak bisa diakses?**
+**Bot tidak merespon?**
 ```bash
-sudo ufw allow 3000
-# atau
-sudo firewall-cmd --add-port=3000/tcp --permanent
-sudo firewall-cmd --reload
+pm2 logs otp-bot
 ```
+
+**Error "Auth error"?**
+- Pastikan Client ID, Secret, dan Tenant ID benar
+- Pastikan API permission sudah di-grant admin consent
 
 **Bot tidak jalan setelah restart VPS?**
 ```bash
@@ -172,9 +271,12 @@ pm2 startup
 pm2 save
 ```
 
-**Error "Auth error"?**
-- Pastikan Client ID, Secret, dan Tenant ID benar
-- Pastikan API permission sudah di-grant admin consent
+**Ingin setup ulang?**
+```bash
+rm ~/otp-bot/config.json
+pm2 restart otp-bot
+pm2 logs otp-bot
+```
 
 ---
 

@@ -5,7 +5,7 @@ import 'isomorphic-fetch';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import http from 'http';
+import readline from 'readline';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -53,273 +53,68 @@ function saveData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// ===== SETUP WIZARD SERVER =====
-function startSetupServer() {
-  const PORT = process.env.SETUP_PORT || 3000;
-  
-  const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OTP Bot - Setup</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .container {
-      background: rgba(255,255,255,0.05);
-      backdrop-filter: blur(10px);
-      border-radius: 20px;
-      padding: 40px;
-      max-width: 500px;
-      width: 100%;
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    h1 {
-      color: #fff;
-      text-align: center;
-      margin-bottom: 10px;
-      font-size: 28px;
-    }
-    .subtitle {
-      color: #8892b0;
-      text-align: center;
-      margin-bottom: 30px;
-    }
-    .form-group {
-      margin-bottom: 20px;
-    }
-    label {
-      display: block;
-      color: #ccd6f6;
-      margin-bottom: 8px;
-      font-weight: 500;
-    }
-    .help {
-      color: #8892b0;
-      font-size: 12px;
-      margin-top: 4px;
-    }
-    input {
-      width: 100%;
-      padding: 12px 16px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 10px;
-      color: #fff;
-      font-size: 16px;
-      transition: all 0.3s;
-    }
-    input:focus {
-      outline: none;
-      border-color: #64ffda;
-      box-shadow: 0 0 0 3px rgba(100,255,218,0.1);
-    }
-    input::placeholder { color: #4a5568; }
-    button {
-      width: 100%;
-      padding: 14px;
-      background: linear-gradient(135deg, #64ffda 0%, #48bb78 100%);
-      border: none;
-      border-radius: 10px;
-      color: #1a1a2e;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 30px rgba(100,255,218,0.3);
-    }
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-    .success {
-      text-align: center;
-      color: #64ffda;
-      padding: 20px;
-    }
-    .success h2 { margin-bottom: 10px; }
-    .error {
-      background: rgba(239,68,68,0.2);
-      border: 1px solid #ef4444;
-      border-radius: 10px;
-      padding: 12px;
-      color: #fca5a5;
-      margin-bottom: 20px;
-      display: none;
-    }
-    .steps {
-      background: rgba(100,255,218,0.1);
-      border-radius: 10px;
-      padding: 15px;
-      margin-top: 20px;
-    }
-    .steps h3 { color: #64ffda; margin-bottom: 10px; }
-    .steps ol { color: #ccd6f6; padding-left: 20px; }
-    .steps li { margin-bottom: 5px; }
-    .steps code {
-      background: rgba(0,0,0,0.3);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div id="form-view">
-      <h1>🤖 OTP Bot Setup</h1>
-      <p class="subtitle">Konfigurasi awal bot Telegram</p>
-      
-      <div class="error" id="error"></div>
-      
-      <form id="setupForm">
-        <div class="form-group">
-          <label for="bot_token">🔑 Bot Token</label>
-          <input type="text" id="bot_token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" required>
-          <p class="help">Dapatkan dari @BotFather di Telegram</p>
-        </div>
-        
-        <div class="form-group">
-          <label for="owner_id">👤 Owner ID</label>
-          <input type="text" id="owner_id" placeholder="123456789" required>
-          <p class="help">ID Telegram kamu. Chat @userinfobot untuk mendapatkannya</p>
-        </div>
-        
-        <button type="submit" id="submitBtn">🚀 Setup Bot</button>
-      </form>
-      
-      <div class="steps">
-        <h3>📋 Cara Mendapatkan:</h3>
-        <ol>
-          <li>Chat <code>@BotFather</code> → <code>/newbot</code></li>
-          <li>Ikuti instruksi, catat token</li>
-          <li>Chat <code>@userinfobot</code> → catat ID kamu</li>
-        </ol>
-      </div>
-    </div>
-    
-    <div id="success-view" class="success" style="display:none;">
-      <h1>✅ Setup Complete!</h1>
-      <p>Bot berhasil dikonfigurasi.</p>
-      <p style="margin-top: 20px; color: #8892b0;">Bot akan restart otomatis...</p>
-    </div>
-  </div>
-
-  <script>
-    document.getElementById('setupForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      const btn = document.getElementById('submitBtn');
-      const error = document.getElementById('error');
-      
-      btn.disabled = true;
-      btn.textContent = 'Setting up...';
-      error.style.display = 'none';
-      
-      try {
-        const response = await fetch('/setup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            bot_token: document.getElementById('bot_token').value,
-            owner_id: document.getElementById('owner_id').value
-          })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-          document.getElementById('form-view').style.display = 'none';
-          document.getElementById('success-view').style.display = 'block';
-        } else {
-          error.textContent = result.error || 'Setup failed';
-          error.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = '🚀 Setup Bot';
-        }
-      } catch (err) {
-        error.textContent = 'Connection error';
-        error.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = '🚀 Setup Bot';
-      }
-    });
-  </script>
-</body>
-</html>
-  `;
-
-  const server = http.createServer((req, res) => {
-    if (req.method === 'GET' && req.url === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(html);
-    } else if (req.method === 'POST' && req.url === '/setup') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', () => {
-        try {
-          const { bot_token, owner_id } = JSON.parse(body);
-          
-          if (!bot_token || !owner_id) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, error: 'All fields required' }));
-            return;
-          }
-          
-          // Save config
-          saveConfig({ bot_token, owner_id });
-          
-          // Initialize data with owner
-          const data = loadData(owner_id);
-          if (!data.approved_users.includes(owner_id)) {
-            data.approved_users.push(owner_id);
-          }
-          saveData(data);
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
-          
-          console.log('✅ Setup complete! Restarting...');
-          
-          // Close server and restart
-          server.close(() => {
-            setTimeout(() => process.exit(0), 1000); // PM2 will restart
-          });
-          
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, error: err.message }));
-        }
-      });
-    } else {
-      res.writeHead(404);
-      res.end('Not Found');
-    }
+// ===== CLI SETUP WIZARD =====
+function runSetupWizard() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
   });
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log('');
-    console.log('╔════════════════════════════════════════════╗');
-    console.log('║         🤖 OTP BOT SETUP WIZARD            ║');
-    console.log('╠════════════════════════════════════════════╣');
-    console.log(`║  Open in browser: http://localhost:${PORT}     ║`);
-    console.log(`║  Or: http://YOUR_VPS_IP:${PORT}              ║`);
-    console.log('╚════════════════════════════════════════════╝');
-    console.log('');
+  console.log('');
+  console.log('╔════════════════════════════════════════════════════════════╗');
+  console.log('║              🤖 OTP TELEGRAM BOT - SETUP                   ║');
+  console.log('╠════════════════════════════════════════════════════════════╣');
+  console.log('║  Selamat datang! Mari konfigurasikan bot kamu.             ║');
+  console.log('╚════════════════════════════════════════════════════════════╝');
+  console.log('');
+  console.log('📋 Cara mendapatkan token dan ID:');
+  console.log('   1. Chat @BotFather di Telegram → /newbot → catat token');
+  console.log('   2. Chat @userinfobot → catat ID Telegram kamu');
+  console.log('');
+
+  rl.question('🔑 Masukkan Bot Token: ', (bot_token) => {
+    if (!bot_token.trim()) {
+      console.log('❌ Bot token tidak boleh kosong!');
+      rl.close();
+      process.exit(1);
+    }
+
+    rl.question('👤 Masukkan Owner ID: ', (owner_id) => {
+      if (!owner_id.trim()) {
+        console.log('❌ Owner ID tidak boleh kosong!');
+        rl.close();
+        process.exit(1);
+      }
+
+      // Save config
+      saveConfig({ 
+        bot_token: bot_token.trim(), 
+        owner_id: owner_id.trim() 
+      });
+
+      // Initialize data with owner
+      const data = loadData(owner_id.trim());
+      if (!data.approved_users.includes(owner_id.trim())) {
+        data.approved_users.push(owner_id.trim());
+      }
+      saveData(data);
+
+      console.log('');
+      console.log('╔════════════════════════════════════════════════════════════╗');
+      console.log('║                 ✅ SETUP COMPLETE!                         ║');
+      console.log('╠════════════════════════════════════════════════════════════╣');
+      console.log('║  Bot akan restart otomatis...                              ║');
+      console.log('║                                                            ║');
+      console.log('║  Setelah restart, buka Telegram dan chat bot kamu.         ║');
+      console.log('║  Gunakan /setclient untuk setup Microsoft credentials.     ║');
+      console.log('╚════════════════════════════════════════════════════════════╝');
+      console.log('');
+
+      rl.close();
+      
+      // Exit so PM2 restarts the bot
+      setTimeout(() => process.exit(0), 1000);
+    });
   });
 }
 
@@ -327,8 +122,8 @@ function startSetupServer() {
 const config = loadConfig();
 
 if (!config || !config.bot_token || !config.owner_id) {
-  console.log('⚠️ Bot not configured. Starting setup wizard...');
-  startSetupServer();
+  console.log('⚠️ Bot belum dikonfigurasi. Memulai setup wizard...');
+  runSetupWizard();
 } else {
   // ===== START BOT =====
   const { bot_token, owner_id } = config;
@@ -980,9 +775,14 @@ if (!config || !config.bot_token || !config.owner_id) {
   });
 
   // ===== STARTUP =====
-  console.log('🤖 OTP Bot started!');
-  console.log(`👤 Owner ID: ${owner_id}`);
-  console.log(`👥 Approved users: ${data.approved_users.length}`);
+  console.log('');
+  console.log('╔════════════════════════════════════════════════════════════╗');
+  console.log('║                 🤖 OTP BOT STARTED                         ║');
+  console.log('╠════════════════════════════════════════════════════════════╣');
+  console.log(`║  👤 Owner ID: ${owner_id.padEnd(43)}║`);
+  console.log(`║  👥 Approved Users: ${String(data.approved_users.length).padEnd(37)}║`);
+  console.log('╚════════════════════════════════════════════════════════════╝');
+  console.log('');
 
   // Auto-start if configured
   const { ms_client_id, ms_client_secret, ms_tenant_id, ms_user_email } = data.settings;
