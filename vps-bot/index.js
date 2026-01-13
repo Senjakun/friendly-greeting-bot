@@ -330,16 +330,24 @@ if (!config || !config.bot_token || !config.owner_id) {
       throw new Error('Email not configured');
     }
 
-    const client = getGraphClient();
-    
-    const response = await client
-      .api(`/users/${ms_user_email}/mailFolders/inbox/messages`)
-      .orderby('receivedDateTime desc')
-      .top(count)
-      .select('id,subject,bodyPreview,from,receivedDateTime,isRead')
-      .get();
+    try {
+      const client = getGraphClient();
+      
+      const response = await client
+        .api(`/users/${ms_user_email}/mailFolders/inbox/messages`)
+        .orderby('receivedDateTime desc')
+        .top(count)
+        .select('id,subject,bodyPreview,from,receivedDateTime,isRead')
+        .get();
 
-    return response.value || [];
+      return response.value || [];
+    } catch (error) {
+      // Extract detailed error from Graph API
+      const graphError = error.body ? JSON.parse(error.body) : null;
+      const errorMessage = graphError?.error?.message || error.message || 'Unknown error';
+      const errorCode = graphError?.error?.code || error.code || '';
+      throw new Error(`${errorCode}: ${errorMessage}`);
+    }
   }
 
   function startPolling() {
