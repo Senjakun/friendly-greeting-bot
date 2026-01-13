@@ -110,100 +110,164 @@ Setelah selesai, ketik `/startbot` untuk mulai monitoring.
 
 ---
 
-## 🔧 Azure App Registration
+## 🔧 Cara Dapat Microsoft Graph API
+
+### Langkah 1: Buat Azure Account (Gratis)
+
+1. Buka [azure.microsoft.com](https://azure.microsoft.com)
+2. Klik **Start free** atau **Sign in**
+3. Login dengan akun Microsoft/Outlook yang emailnya mau dimonitor
+4. Ikuti proses registrasi (kartu kredit diperlukan tapi TIDAK dicharge)
+
+### Langkah 2: Buat App Registration
 
 1. Buka [portal.azure.com](https://portal.azure.com)
-2. Cari "App registrations" → **New registration**
-3. Nama: `OTP Bot` → Register
+2. Di search bar, ketik **"App registrations"** → klik
+3. Klik **+ New registration**
+4. Isi form:
+   - **Name:** `OTP Bot` (bebas)
+   - **Supported account types:** Pilih "Accounts in this organizational directory only"
+   - **Redirect URI:** Kosongkan
+5. Klik **Register**
 
-4. **Catat:**
-   - Application (client) ID
-   - Directory (tenant) ID
+### Langkah 3: Catat Credentials
 
-5. **Certificates & secrets** → New client secret
-   - Catat Value
+Setelah register, kamu akan masuk ke halaman app. Catat:
 
-6. **API permissions** → Add permission → Microsoft Graph:
-   - `Mail.Read` (Application type)
-   - Click "Grant admin consent"
+| Nama | Lokasi |
+|------|--------|
+| **Client ID** | "Application (client) ID" di halaman Overview |
+| **Tenant ID** | "Directory (tenant) ID" di halaman Overview |
+
+### Langkah 4: Buat Client Secret
+
+1. Di sidebar kiri, klik **Certificates & secrets**
+2. Klik **+ New client secret**
+3. Description: `OTP Bot Secret` (bebas)
+4. Expires: Pilih **24 months** (maksimal)
+5. Klik **Add**
+6. ⚠️ **PENTING:** Langsung copy **Value** (bukan Secret ID!)
+   - Value hanya muncul sekali, tidak bisa dilihat lagi!
+
+### Langkah 5: Tambah API Permission
+
+1. Di sidebar kiri, klik **API permissions**
+2. Klik **+ Add a permission**
+3. Pilih **Microsoft Graph**
+4. Pilih **Application permissions** (BUKAN Delegated!)
+5. Cari dan centang:
+   - ✅ `Mail.Read`
+6. Klik **Add permissions**
+7. Klik **Grant admin consent for [Tenant Name]**
+   - Klik **Yes** untuk konfirmasi
+   - Pastikan status menjadi ✅ hijau "Granted"
+
+### Langkah 6: Masukkan ke Bot
+
+Chat bot di Telegram:
+```
+/setclient
+```
+Lalu masukkan:
+1. Client ID
+2. Client Secret (Value yang dicopy tadi)
+3. Tenant ID
+4. Email yang dimonitor
+5. Interval check (dalam detik, default 30)
+
+Selesai! Ketik `/startbot` untuk mulai monitoring.
 
 ---
 
-## 🌐 Menggunakan Domain Sendiri
+## 🌐 Custom Domain (Pengganti IP:PORT)
 
-Bot Telegram tidak memerlukan domain karena berkomunikasi langsung dengan API Telegram. Tapi jika kamu ingin domain untuk:
+Jika kamu mau akses bot via domain (misal: `bot.domain.com`) instead of `123.45.67.89:3000`:
 
-### 1. Webhook (Opsional - untuk performa lebih baik)
+### Langkah 1: Arahkan Domain ke VPS
 
-Ubah dari polling ke webhook:
+Di domain provider (Cloudflare/Namecheap/dll), tambah DNS record:
 
-```javascript
-// Di index.js, ganti:
-const bot = new TelegramBot(bot_token, { polling: true });
+| Type | Name | Content | TTL |
+|------|------|---------|-----|
+| A | bot | IP_VPS_KAMU | Auto |
 
-// Menjadi:
-const bot = new TelegramBot(bot_token);
-bot.setWebHook('https://yourdomain.com/webhook');
-```
+Contoh: `bot.domain.com` → `123.45.67.89`
 
-Setup domain dengan SSL:
+### Langkah 2: Install Nginx + SSL
 
 ```bash
 # Install Nginx
-sudo apt install nginx certbot python3-certbot-nginx
+sudo apt update
+sudo apt install nginx -y
 
-# Setup SSL
-sudo certbot --nginx -d yourdomain.com
+# Install Certbot untuk SSL gratis
+sudo apt install certbot python3-certbot-nginx -y
 
-# Nginx config untuk webhook
+# Buat config Nginx
 sudo nano /etc/nginx/sites-available/otp-bot
 ```
 
+Paste config ini:
+
 ```nginx
 server {
-    listen 443 ssl;
-    server_name yourdomain.com;
+    listen 80;
+    server_name bot.domain.com;  # Ganti dengan domainmu
 
-    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-
-    location /webhook {
+    location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_cache_bypass $http_upgrade;
     }
 }
 ```
 
 ```bash
+# Aktifkan config
 sudo ln -s /etc/nginx/sites-available/otp-bot /etc/nginx/sites-enabled/
+
+# Test config
 sudo nginx -t
+
+# Reload Nginx
 sudo systemctl reload nginx
+
+# Dapatkan SSL Certificate (GRATIS!)
+sudo certbot --nginx -d bot.domain.com
+# Ikuti instruksi, pilih redirect HTTP ke HTTPS
 ```
 
-### 2. Dashboard Web (Jika diperlukan)
+### Langkah 3: Done!
 
-Jika kamu ingin menambahkan dashboard web:
+Sekarang bisa akses:
+- ❌ `http://123.45.67.89:3000`
+- ✅ `https://bot.domain.com`
 
+### Troubleshooting Domain
+
+**Domain tidak bisa diakses?**
 ```bash
-# Arahkan domain ke IP VPS
-# Di DNS provider (Cloudflare, Namecheap, dll):
-# A Record: @ → IP_VPS_KAMU
-# A Record: www → IP_VPS_KAMU
+# Cek Nginx running
+sudo systemctl status nginx
 
-# Setup SSL
-sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+# Cek firewall
+sudo ufw allow 80
+sudo ufw allow 443
+
+# Cek DNS propagation
+nslookup bot.domain.com
 ```
 
-### 3. DNS Settings
-
-Di domain provider kamu:
-
-| Type | Name | Value | TTL |
-|------|------|-------|-----|
-| A | @ | IP_VPS_KAMU | Auto |
-| A | www | IP_VPS_KAMU | Auto |
+**SSL error?**
+```bash
+# Renew certificate
+sudo certbot renew --dry-run
+```
 
 ---
 
